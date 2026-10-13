@@ -2,6 +2,11 @@
 
 The capture app (`index.html`) and the Explorer (`explorer.html`) share one version number, set in `package.json` and in `sw.js`.
 
+## 1.0.2 — 2026-10-13
+
+### Fixed
+- Share ZIP on Android failed with "Permission denied": the share sheet must open right after a tap, and building the ZIP took longer. The first tap now builds the ZIP and the button changes to TAP TO SHARE; the next tap shares it at once.
+
 ## 1.0.1 — 2026-10-13
 
 ### Changed

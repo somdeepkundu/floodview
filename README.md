@@ -2,7 +2,7 @@
 
 **Geo-tagged flood ground truthing from a phone.** Every photo records where you stand, where the camera looks, the patch of ground or water it sees, and what the water is doing. Built to collect field truth for flood maps (for example Sentinel-1 SAR or optical flood extents).
 
-**Version 1.0.1** · Sibling of [CropView](https://github.com/somdeepkundu/cropview-v3) · MIT License
+**Version 1.0.2** · Sibling of [CropView](https://github.com/somdeepkundu/cropview-v3) · MIT License
 
 * **[Open FloodView](https://somdeepkundu.github.io/floodview/)**: the capture app (phone)
 * **[Open FloodView Explorer](https://somdeepkundu.github.io/floodview/explorer.html)**: map, review and export your ZIPs (phone or desktop)
