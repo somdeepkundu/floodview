@@ -2,6 +2,11 @@
 
 The capture app (`index.html`) and the Explorer (`explorer.html`) share one version number, set in `package.json` and in `sw.js`.
 
+## 1.1.1 — 2026-10-13
+
+### Security
+- Short security check (see `SECURITY-AUDIT.md`). Added a Content-Security-Policy to both pages, and CSV exports now neutralise text that a spreadsheet would run as a formula.
+
 ## 1.1.0 — 2026-10-13
 
 ### Added

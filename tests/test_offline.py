@@ -6,7 +6,7 @@ with sync_playwright() as p:
     b=p.chromium.launch(args=['--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream'])
     ctx=b.new_context(service_workers='allow', geolocation={'latitude':16.7,'longitude':74.24}, permissions=['geolocation','camera'])
     pg=ctx.new_page(); errs=[]; pg.on('pageerror',lambda e:errs.append(str(e)))
-    pg.goto(BASE+'/index.html'); pg.wait_for_function("navigator.serviceWorker.controller!==null || document.getElementById('offline-state').classList.contains('ok')",timeout=15000)
+    pg.goto(BASE+'/index.html'); [pg.wait_for_timeout(500) for _ in range(30) if not pg.evaluate("document.getElementById('offline-state').classList.contains('ok')")]
     pg.reload(); pg.wait_for_timeout(1500)
     print('online state:', pg.inner_text('#offline-state'))
     ctx.set_offline(True)

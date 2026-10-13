@@ -5,7 +5,7 @@
    • Map tiles: every tile you look at while online is kept (up to
      TILE_MAX), so a map you browsed before going out still shows offline.
    Bump VERSION whenever any cached file changes. */
-const VERSION = 'floodview-1.1.0';
+const VERSION = 'floodview-1.1.1';
 const TILE_CACHE = 'floodview-tiles';
 const TILE_MAX = 3000;
 const SHELL = [
