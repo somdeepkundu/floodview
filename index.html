@@ -125,7 +125,15 @@
     .cbtn.fl{background:linear-gradient(180deg,#93c5fd 0%,#3b82f6 55%,#2563eb 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -3px 8px rgba(15,40,110,.35),0 8px 18px -8px rgba(59,130,246,.75)}
     .cbtn.wl{background:linear-gradient(180deg,#99f6e4 0%,#14b8a6 55%,#0d9488 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -3px 8px rgba(5,70,64,.35),0 8px 18px -8px rgba(20,184,166,.7)}
     .cbtn.dr{background:linear-gradient(180deg,#fde68a 0%,#f59e0b 55%,#d97706 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -3px 8px rgba(110,60,5,.3),0 8px 18px -8px rgba(245,158,11,.7)}
-    .cbtn.fl,.cbtn.wl{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.35)}
+    .cbtn.fl,.cbtn.wl,.cbtn.mk,.cbtn.dm,.cbtn.nf{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.35)}
+    .cbtn.mk{background:linear-gradient(180deg,#d8b4fe 0%,#a855f7 55%,#7e22ce 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 8px 18px -8px rgba(168,85,247,.7)}
+    .cbtn.dm{background:linear-gradient(180deg,#fca5a5 0%,#ef4444 55%,#b91c1c 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 8px 18px -8px rgba(239,68,68,.7)}
+    .cbtn.nf{background:linear-gradient(180deg,#86efac 0%,#22c55e 55%,#15803d 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 8px 18px -8px rgba(34,197,94,.7)}
+    .phase-pick{display:flex;gap:8px;width:100%}
+    .ph{flex:1;padding:11px 8px;border-radius:12px;background:var(--g-fill);border:1px solid var(--g-edge-hi);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}
+    .ph small{font-size:9.5px;font-weight:400;color:var(--muted)}
+    .ph.on{background:linear-gradient(180deg,rgba(56,189,248,.24),rgba(56,189,248,.08));border-color:rgba(56,189,248,.65)}
+    .phase-tag{font-size:9px;color:var(--amber);margin-left:4px}
 
     /* generic buttons */
     .btn{flex:1;padding:11px;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;border:none;border-radius:var(--radius);cursor:pointer;transition:transform .15s}
@@ -289,7 +297,7 @@
     <div class="safety"><b>⚠ Stay safe.</b> Never wade into moving water: 15 cm of fast water can knock an adult over, and 30 cm can carry a car away. Tag from dry ground; the crosshair records the spot you aim at, not just where you stand.</div>
     <div class="hint-box">
       <b>How it works:</b> aim at the scene and tap <b style="color:#93c5fd">FLOODED</b>, <b style="color:#5eead4">WATERLOGGED</b> or <b style="color:#fcd34d">DRY</b>. One tap saves the photo with its class and your tags (depth, flow, trend, what's flooded). Turn on <b style="color:#f9a8d4">Edge</b> and put the crosshair on the waterline to trace the flood boundary.<br/><br/>
-      When you're done, export a ZIP from the Data tab and open it in the Explorer.
+      <b>After the flood?</b> Choose <b>After flood</b> when you start a survey to record flood marks, damage and places that stayed dry.<br/><br/>When you're done, export a ZIP from the Data tab and open it in the Explorer.
     </div>
     <div id="offline-state">Checking offline support…</div>
     <a class="link-pill" href="explorer.html" target="_blank" rel="noopener">🗺️ Open FloodView Explorer ↗</a>
@@ -307,6 +315,11 @@
       <span class="flbl" style="margin:8px 0 0">Or start a new one</span>
     </div>
     <div class="pform">
+      <span class="flbl">Survey type</span>
+      <div class="phase-pick">
+        <button type="button" class="ph on" data-ph="during" onclick="pickPhase('during')">🌊 During flood<small>water is still there</small></button>
+        <button type="button" class="ph" data-ph="post" onclick="pickPhase('post')">🏚 After flood<small>flood marks &amp; damage</small></button>
+      </div>
       <span class="flbl">Survey name</span>
       <input id="pname" class="tinput" type="text" placeholder="e.g. Kolhapur_Panchganga_Aug2026" maxlength="60" autocomplete="off" spellcheck="false" />
       <span class="flbl">Surveyor / notes (optional)</span>
@@ -330,7 +343,7 @@
       <div class="opts" id="ts-cls"></div>
     </div>
     <div class="ssec" id="ts-depth-sec">
-      <div class="slbl"><span>Water depth</span><span style="text-transform:none;letter-spacing:0">body scale</span></div>
+      <div class="slbl"><span id="ts-depth-title">Water depth</span><span style="text-transform:none;letter-spacing:0">body scale</span></div>
       <div class="opts" id="ts-depth"></div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:9px">
         <input id="ts-depth-cm" class="tinput" style="padding:9px 12px;font-size:12px;max-width:150px" type="number" min="0" max="1000" step="1" inputmode="numeric" placeholder="Measured cm" oninput="sheetDepthCm(this.value)" />
@@ -348,6 +361,22 @@
     <div class="ssec" id="ts-land-sec">
       <div class="slbl"><span>What's flooded</span><span style="text-transform:none;letter-spacing:0">pick any</span></div>
       <div class="opts" id="ts-land"></div>
+    </div>
+    <div class="ssec" id="ts-damage-sec">
+      <div class="slbl"><span>What is damaged</span><span style="text-transform:none;letter-spacing:0">pick any</span></div>
+      <div class="opts" id="ts-damage"></div>
+    </div>
+    <div class="ssec" id="ts-sev-sec">
+      <div class="slbl">How bad</div>
+      <div class="opts" id="ts-sev"></div>
+    </div>
+    <div class="ssec" id="ts-debris-sec">
+      <div class="slbl">Mud &amp; debris left behind</div>
+      <div class="opts" id="ts-debris"></div>
+    </div>
+    <div class="ssec" id="ts-stay-sec">
+      <div class="slbl">How long the water stayed</div>
+      <div class="opts" id="ts-stay"></div>
     </div>
     <div class="ssec" id="ts-edge-sec">
       <div class="edge-row">
@@ -516,30 +545,15 @@
         <div class="hbadge" id="h-edge">〰 EDGE · crosshair on the waterline</div>
       </div>
     </div>
-    <div id="tagbar">
-      <div class="tchip" id="tc-depth" onclick="openSheet('depth')">Depth <b>—</b></div>
-      <div class="tchip" id="tc-flow" onclick="openSheet('flow')">Flow <b>—</b></div>
-      <div class="tchip" id="tc-trend" onclick="openSheet('trend')">Trend <b>—</b></div>
-      <div class="tchip" id="tc-land" onclick="openSheet('land')">Flooded <b>—</b></div>
-      <div class="tchip edge" id="tc-edge" onclick="toggleEdge()">〰 Edge <b>OFF</b></div>
-    </div>
-    <div id="cc">
-      <button class="cbtn fl" onclick="doCapture('flooded')"><span class="cb-ic">🌊</span>FLOODED</button>
-      <button class="cbtn wl" onclick="doCapture('waterlogged')"><span class="cb-ic">💧</span>WATERLOGGED</button>
-      <button class="cbtn dr" onclick="doCapture('dry')"><span class="cb-ic">☀️</span>DRY</button>
-    </div>
+    <div id="tagbar"></div>
+    <div id="cc"></div>
   </div>
 
   <!-- MAP -->
   <div id="map-panel" class="panel">
     <div style="flex:1;position:relative;display:flex;min-height:0">
       <div id="map"></div>
-      <div id="map-legend">
-        <span><i style="background:var(--fl)"></i>Flooded</span>
-        <span><i style="background:var(--wl)"></i>Waterlogged</span>
-        <span><i style="background:var(--dr)"></i>Dry</span>
-        <span><i style="background:transparent;border-color:var(--edge);border-width:2.5px"></i>Water edge</span>
-      </div>
+      <div id="map-legend"></div>
     </div>
     <div id="mc">
       <button class="btn bs" onclick="centerMe()">⊕ POS</button>
@@ -566,12 +580,7 @@
 
     <div class="dc">
       <h3>📁 Captures (<span id="cc2">0</span>)</h3>
-      <div class="stat-row">
-        <div class="stat"><b style="color:#93c5fd" id="n-fl">0</b><small>Flooded</small></div>
-        <div class="stat"><b style="color:#5eead4" id="n-wl">0</b><small>Waterlog.</small></div>
-        <div class="stat"><b style="color:#fcd34d" id="n-dr">0</b><small>Dry</small></div>
-        <div class="stat"><b style="color:#f9a8d4" id="n-edge">0</b><small>Edge</small></div>
-      </div>
+      <div class="stat-row" id="stat-row"></div>
       <div id="cap-list"><div class="es"><div style="font-size:34px">🌊</div>No captures yet.</div></div>
     </div>
 
@@ -619,7 +628,7 @@
 <canvas id="snap" style="display:none"></canvas>
 
 <script>
-const APP_VERSION = '1.0.2';
+const APP_VERSION = '1.1.0';
 const S = {
   lat:null,lon:null,alt:null,acc:null,altAcc:null,lastGPSTime:null,
   gpsSamples:0,
@@ -638,9 +647,9 @@ const S = {
   facing:'environment',stream:null,
   map:null,umark:null,fovL:null,rayL:null,coneL:null,aimL:null,capL:null,fpL:null,edgeL:null,
   sat:false,tile:null,
-  proj:{name:'',notes:'',t:''},
+  proj:{name:'',notes:'',t:'',phase:'during'},
   // flood tags — sticky: they ride along with every capture until changed
-  tags:{depth:null, depthCm:null, flow:null, trend:null, land:[], edge:false},
+  tags:{depth:null, depthCm:null, flow:null, trend:null, land:[], edge:false, damage:[], sev:null, debris:null, stay:null},
   memPhotos:{},        // only used if IndexedDB is unavailable
   fastWarned:false
 };
@@ -651,6 +660,24 @@ const FCLASS = {
   waterlogged: {label:'Waterlogged', icon:'💧', col:'#14b8a6'},
   dry:         {label:'Dry',         icon:'☀️', col:'#f59e0b'},
 };
+/* After-flood classes. was_flooded in the export makes both phases comparable:
+   flooded / waterlogged / flood_mark / damage = true, dry / not_flooded = false. */
+FCLASS.flood_mark  = {label:'Flood mark',  icon:'📏', col:'#a855f7'};
+FCLASS.damage      = {label:'Damage',      icon:'🏚', col:'#ef4444'};
+FCLASS.not_flooded = {label:'Not flooded', icon:'✅', col:'#22c55e'};
+const WAS_FLOODED = {flooded:true, waterlogged:true, flood_mark:true, damage:true, dry:false, not_flooded:false};
+const PHASES = {
+  during:{label:'During flood', buttons:[['flooded','fl','FLOODED'],['waterlogged','wl','WATERLOGGED'],['dry','dr','DRY']],
+          chips:['depth','flow','trend','land'], dry:'dry'},
+  post:  {label:'After flood',  buttons:[['flood_mark','mk','FLOOD MARK'],['damage','dm','DAMAGE'],['not_flooded','nf','NOT FLOODED']],
+          chips:['depth','damage','sev','debris','stay'], dry:'not_flooded'},
+};
+const DAMAGE = [{k:'house',label:'🏠 House'},{k:'building',label:'🏢 Other building'},{k:'road',label:'🛣️ Road'},{k:'bridge',label:'🌉 Bridge / culvert'},
+  {k:'crops',label:'🌾 Crops / field'},{k:'embankment',label:'⛰️ Embankment / bund'},{k:'water_supply',label:'🚰 Well / water supply'},{k:'power',label:'⚡ Power line'},{k:'vehicle',label:'🚗 Vehicle'},{k:'livestock',label:'🐄 Livestock / shed'}];
+const SEV = [{k:'minor',label:'Minor'},{k:'major',label:'Major'},{k:'destroyed',label:'Destroyed ⚠'}];
+const DEBRIS = [{k:'none',label:'None'},{k:'thin',label:'Thin layer'},{k:'thick',label:'Thick (5 cm +)'}];
+const STAY = [{k:'lt1d',label:'Less than a day'},{k:'1to3d',label:'1–3 days'},{k:'gt3d',label:'More than 3 days'}];
+const phase = () => PHASES[S.proj.phase] || PHASES.during;
 const UNLABELLED_COL = '#94a3b8', EDGE_COL = '#f472b6';
 /* Body-scale depth. cm = representative value used when nothing was measured. */
 const DEPTH = [
@@ -837,7 +864,7 @@ async function startProject(resumeName){
   if(resumeName){
     const sess = await DB.getSession(resumeName);
     if(!sess){ toast('Saved survey not found','err'); return; }
-    n = sess.name; notes = sess.notes||''; ch = sess.camH||1.5; t = sess.started||new Date().toISOString();
+    n = sess.name; notes = sess.notes||''; ch = sess.camH||1.5; t = sess.started||new Date().toISOString(); S.proj.phase = sess.phase||'during';
   } else {
     const raw = document.getElementById('pname').value.trim();
     if(!raw){toast('Enter a survey name','err');return;}
@@ -845,20 +872,35 @@ async function startProject(resumeName){
     notes = document.getElementById('pnotes').value.trim();
     ch = parseFloat(document.getElementById('pcamh').value);
     if(!isFinite(ch) || ch < 0.2 || ch > 60){ toast('Camera height must be 0.2–60 m','err'); return; }
+    S.proj.phase = PICKED_PHASE;
     const existing = await DB.getSession(n);
     t = existing ? existing.started : new Date().toISOString();
     if(existing) toast('Continuing saved survey '+n,'ok');
   }
   S.proj.name=n; S.proj.notes=notes; S.proj.t=t; S.camH=ch;
+  applyPhase();
   await DB.putSession();
   document.getElementById('proj-screen').classList.remove('on');
-  document.getElementById('hproj').textContent = S.proj.name;
   document.getElementById('camh-edit').value = S.camH;
   startCamera(); initMap(); await loadCaps(); updData(); keepAwake();
   setDot('active');
-  setTimeout(()=>toast('Tap FLOODED, WATERLOGGED or DRY to capture','ok'), 900);
+  setTimeout(()=>toast('Tap '+phase().buttons.map(b=>b[2]).join(', ').replace(/, ([^,]*)$/,' or $1')+' to capture','ok'), 900);
 }
 
+let PICKED_PHASE='during';
+function pickPhase(p){ PICKED_PHASE=p; document.querySelectorAll('.ph').forEach(b=>b.classList.toggle('on',b.dataset.ph===p)); }
+/* Switch buttons, tag chips, legend and counters to the survey's phase. */
+function applyPhase(){
+  const P=phase();
+  document.getElementById('cc').innerHTML=P.buttons.map(([k,c,t])=>`<button class="cbtn ${c}" onclick="doCapture('${k}')"><span class="cb-ic">${FCLASS[k].icon}</span>${t}</button>`).join('');
+  document.getElementById('map-legend').innerHTML=P.buttons.map(([k])=>`<span><i style="background:${FCLASS[k].col}"></i>${FCLASS[k].label}</span>`).join('')+
+    `<span><i style="background:transparent;border-color:var(--edge);border-width:2.5px"></i>${S.proj.phase==='post'?'Flood edge':'Water edge'}</span>`;
+  document.getElementById('stat-row').innerHTML=P.buttons.map(([k,c,t])=>`<div class="stat"><b style="color:${FCLASS[k].col}" id="n-${k}">0</b><small>${FCLASS[k].label}</small></div>`).join('')+
+    `<div class="stat"><b style="color:#f9a8d4" id="n-edge">0</b><small>Edge</small></div>`;
+  document.getElementById('ts-depth-title').textContent = S.proj.phase==='post' ? 'Flood mark height (above ground)' : 'Water depth';
+  document.getElementById('hproj').textContent = S.proj.name + (S.proj.phase==='post' ? ' · after flood' : '');
+  renderTagBar();
+}
 async function renderResumeList(){
   const list = await DB.listSessions();
   const wrap = document.getElementById('resume-wrap');
@@ -866,7 +908,7 @@ async function renderResumeList(){
   wrap.style.display='flex';
   document.getElementById('resume-list').innerHTML = list.slice(0,4).map(s=>`
     <button class="resume" onclick="startProject(${esc(JSON.stringify(s.name))})">
-      <div style="min-width:0"><b>${esc(s.name)}</b><small>${s.count} capture${s.count===1?'':'s'} · ${new Date(s.updated||s.started).toLocaleDateString()} · camera ${(+s.camH||1.5).toFixed(2)} m</small></div>
+      <div style="min-width:0"><b>${esc(s.name)}</b><small>${s.phase==='post'?'After flood':'During flood'} · ${s.count} capture${s.count===1?'':'s'} · ${new Date(s.updated||s.started).toLocaleDateString()} · camera ${(+s.camH||1.5).toFixed(2)} m</small></div>
       <span class="go">→</span>
     </button>`).join('');
 }
@@ -1354,6 +1396,7 @@ function popupHTML(c){
 function loadTags(){
   try{ const t=JSON.parse(localStorage.getItem('fv_tags')||'null'); if(t) S.tags=Object.assign(S.tags,t); }catch(e){}
   if(!Array.isArray(S.tags.land)) S.tags.land=[];
+  if(!Array.isArray(S.tags.damage)) S.tags.damage=[];
   renderTagBar();
 }
 function saveTags(){ try{ localStorage.setItem('fv_tags',JSON.stringify(S.tags)); }catch(e){} }
@@ -1361,24 +1404,28 @@ function depthText(k,cm){
   if(cm!==null && cm!==undefined && cm!=='') return cm+' cm';
   const d=findK(DEPTH,k); return d?d.short:null;
 }
+const shortL = o => o ? o.label.replace(/^\S+\s/,'').replace(' ⚠','') : null;
+const multiTxt = (arr,list) => arr&&arr.length ? shortL(findK(list,arr[0])||{label:'x '+arr[0]})+(arr.length>1?' +'+(arr.length-1):'') : null;
 function renderTagBar(){
-  const t=S.tags;
-  const chip=(id,label,val)=>{ const el=document.getElementById(id); el.innerHTML=label+' <b>'+(val?esc(val):'—')+'</b>'; el.classList.toggle('set',!!val); };
-  chip('tc-depth','Depth',depthText(t.depth,t.depthCm));
-  chip('tc-flow','Flow',(findK(FLOW,t.flow)||{}).label);
-  chip('tc-trend','Trend',(findK(TREND,t.trend)||{}).label);
-  chip('tc-land','Flooded',t.land.length?(findK(LAND,t.land[0])||{label:t.land[0]}).label.replace(/^\S+\s/,'')+(t.land.length>1?' +'+(t.land.length-1):''):null);
-  const e=document.getElementById('tc-edge');
-  e.classList.toggle('on',!!t.edge); e.innerHTML='〰 Edge <b>'+(t.edge?'ON':'OFF')+'</b>';
+  const t=S.tags, post=S.proj.phase==='post';
+  const val={depth:depthText(t.depth,t.depthCm), flow:shortL(findK(FLOW,t.flow)), trend:(findK(TREND,t.trend)||{}).label,
+    land:multiTxt(t.land,LAND), damage:multiTxt(t.damage,DAMAGE), sev:shortL(findK(SEV,t.sev)), debris:shortL(findK(DEBRIS,t.debris)), stay:shortL(findK(STAY,t.stay))};
+  const name={depth:post?'Mark':'Depth', flow:'Flow', trend:'Trend', land:'Flooded', damage:'Damage', sev:'How bad', debris:'Mud', stay:'Stayed'};
+  document.getElementById('tagbar').innerHTML = phase().chips.map(k=>`<div class="tchip ${val[k]?'set':''}" id="tc-${k}" onclick="openSheet('${k}')">${name[k]} <b>${val[k]?esc(val[k]):'—'}</b></div>`).join('')+
+    `<div class="tchip edge ${t.edge?'on':''}" id="tc-edge" onclick="toggleEdge()">〰 Edge <b>${t.edge?'ON':'OFF'}</b></div>`;
   document.body.classList.toggle('edge-on',!!t.edge);
 }
 function toggleEdge(){
   S.tags.edge=!S.tags.edge; saveTags(); renderTagBar(); updFov();
-  toast(S.tags.edge?'Edge ON — put the crosshair on the waterline':'Edge OFF', S.tags.edge?'ok':'');
+  toast(S.tags.edge?(S.proj.phase==='post'?'Edge ON — put the crosshair on the outer edge of the flood marks':'Edge ON — put the crosshair on the waterline'):'Edge OFF', S.tags.edge?'ok':'');
 }
 function tagSummary(c){
   const p=[];
-  const d=depthText(c.depth,c.depthCm); if(d) p.push('depth '+d);
+  const d=(c.depth==='none'&&(c.cls==='dry'||c.cls==='not_flooded'))?null:depthText(c.depth,c.depthCm); if(d) p.push((c.phase==='post'?'mark ':'depth ')+d);
+  if(c.damage&&c.damage.length) p.push('damage: '+c.damage.map(k=>shortL(findK(DAMAGE,k))||k).join(', '));
+  const sv=findK(SEV,c.sev); if(sv) p.push(shortL(sv));
+  const db=findK(DEBRIS,c.debris); if(db) p.push('mud '+shortL(db).toLowerCase());
+  const st=findK(STAY,c.stay); if(st) p.push('stayed '+st.label.toLowerCase());
   const f=findK(FLOW,c.flow); if(f) p.push(f.label.replace(' ⚠','')+' flow');
   const tr=findK(TREND,c.trend); if(tr) p.push(tr.label);
   if(c.land&&c.land.length) p.push(c.land.map(k=>(findK(LAND,k)||{label:k}).label.replace(/^\S+\s/,'')).join(', '));
@@ -1392,7 +1439,8 @@ function openSheet(focus, capId){
   const cap = edit ? S.caps.find(c=>c.id===capId) : null;
   if(edit && !cap) return;
   sheet = {mode: edit?'edit':'live', cap,
-    w: edit ? {cls:cap.cls, depth:cap.depth, depthCm:cap.depthCm, flow:cap.flow, trend:cap.trend, land:[...(cap.land||[])], edge:!!cap.edge, note:cap.note||''}
+    w: edit ? {cls:cap.cls, depth:cap.depth, depthCm:cap.depthCm, flow:cap.flow, trend:cap.trend, land:[...(cap.land||[])], edge:!!cap.edge, note:cap.note||'',
+               damage:[...(cap.damage||[])], sev:cap.sev||null, debris:cap.debris||null, stay:cap.stay||null}
             : S.tags};
   document.getElementById('ts-title').textContent = edit ? 'Edit capture' : 'Tags for the next captures';
   document.getElementById('ts-sub').textContent = edit
@@ -1401,6 +1449,10 @@ function openSheet(focus, capId){
   ['ts-cls-sec','ts-note-sec','ts-btns-edit'].forEach(id=>document.getElementById(id).style.display=edit?'':'none');
   document.getElementById('ts-btns-live').style.display=edit?'none':'';
   document.getElementById('ts-note').value = edit ? (cap.note||'') : '';
+  const post = (edit ? cap.phase : S.proj.phase)==='post';
+  sheet.post=post;
+  [['flow',!post],['trend',!post],['land',!post],['damage',post],['sev',post],['debris',post],['stay',post]].forEach(([k,on])=>document.getElementById('ts-'+k+'-sec').style.display=on?'':'none');
+  document.getElementById('ts-depth-title').textContent = post ? 'Flood mark height (above ground)' : 'Water depth';
   renderSheet();
   document.getElementById('tag-ov').classList.add('on');
   const sec=document.getElementById('ts-'+focus+'-sec');
@@ -1410,13 +1462,17 @@ function closeSheet(){ document.getElementById('tag-ov').classList.remove('on');
 function renderSheet(){
   const w=sheet.w;
   const opt=(on,html,fn,extra='')=>`<div class="opt ${extra} ${on?'on':''}" onclick="${fn}">${html}</div>`;
-  document.getElementById('ts-cls').innerHTML = Object.entries(FCLASS).map(([k,v])=>
+  document.getElementById('ts-cls').innerHTML = PHASES[sheet.post?'post':'during'].buttons.map(([k])=>[k,FCLASS[k]]).map(([k,v])=>
     `<div class="opt cls ${w.cls===k?'on':''}" style="${w.cls===k?`background:${v.col};border-color:${v.col}`:''}" onclick="sheetSet('cls','${k}')">${v.icon} ${v.label}</div>`).join('');
   document.getElementById('ts-depth').innerHTML = DEPTH.map(d=>opt(w.depth===d.k,`${d.label}<small>${d.range}</small>`,`sheetSet('depth','${d.k}')`)).join('');
   const cmIn=document.getElementById('ts-depth-cm'); if(document.activeElement!==cmIn) cmIn.value = (w.depthCm ?? '');
   document.getElementById('ts-flow').innerHTML = FLOW.map(f=>opt(w.flow===f.k,f.label,`sheetSet('flow','${f.k}')`,f.k==='fast'?'danger':'')).join('');
   document.getElementById('ts-trend').innerHTML = TREND.map(f=>opt(w.trend===f.k,f.label,`sheetSet('trend','${f.k}')`)).join('');
   document.getElementById('ts-land').innerHTML = LAND.map(f=>opt(w.land.includes(f.k),f.label,`sheetLand('${f.k}')`)).join('');
+  document.getElementById('ts-damage').innerHTML = DAMAGE.map(f=>opt((w.damage||[]).includes(f.k),f.label,`sheetMulti('damage','${f.k}')`)).join('');
+  document.getElementById('ts-sev').innerHTML = SEV.map(f=>opt(w.sev===f.k,f.label,`sheetSet('sev','${f.k}')`,f.k==='destroyed'?'danger':'')).join('');
+  document.getElementById('ts-debris').innerHTML = DEBRIS.map(f=>opt(w.debris===f.k,f.label,`sheetSet('debris','${f.k}')`)).join('');
+  document.getElementById('ts-stay').innerHTML = STAY.map(f=>opt(w.stay===f.k,f.label,`sheetSet('stay','${f.k}')`)).join('');
   document.getElementById('ts-edge').checked = !!w.edge;
 }
 function sheetSet(field,k){
@@ -1429,6 +1485,7 @@ function sheetSet(field,k){
   if(field==='flow' && w.flow==='fast' && sheet.mode==='live' && !S.fastWarned){ S.fastWarned=true; toast('⚠ Fast water: stay out of it and tag it from where you stand','err'); }
   afterSheetChange();
 }
+function sheetMulti(f,k){ const l=sheet.w[f]=sheet.w[f]||[], i=l.indexOf(k); if(i>=0) l.splice(i,1); else l.push(k); afterSheetChange(); }
 function sheetLand(k){ const l=sheet.w.land, i=l.indexOf(k); if(i>=0) l.splice(i,1); else l.push(k); afterSheetChange(); }
 function sheetEdge(on){ sheet.w.edge=!!on; afterSheetChange(); }
 function sheetDepthCm(v){
@@ -1448,6 +1505,7 @@ function afterSheetChange(){
 async function saveEdit(){
   const c=sheet.cap, w=sheet.w; if(!c) return;
   Object.assign(c,{cls:w.cls, depth:w.depth, depthCm:w.depthCm, flow:w.flow, trend:w.trend, land:[...w.land], edge:!!w.edge,
+    damage:[...(w.damage||[])], sev:w.sev, debris:w.debris, stay:w.stay,
     note:document.getElementById('ts-note').value.trim(), edited:new Date().toISOString()});
   await DB.putCap(c); await DB.putSession();
   closeSheet(); rendList(); drawCaps(); toast('Capture updated','ok');
@@ -1475,7 +1533,8 @@ async function doCapture(cls){
     const tb = travelBearing();
     const rel = tb===null ? null : Math.round(((S.heading - tb + 540) % 360) - 180);
     const t = S.tags;
-    const dry = cls==='dry';
+    const post = S.proj.phase==='post';
+    const dry = cls==='dry' || cls==='not_flooded';
     const ts=now.toISOString().replace(/[-:T]/g,'').split('.')[0];
     const la=S.lat.toFixed(5).replace('.','p'), lo=S.lon.toFixed(5).replace('.','p');
     const id='FV-'+ms;
@@ -1485,11 +1544,15 @@ async function doCapture(cls){
       travelBrg: tb===null ? null : Math.round(tb), lookRel: rel, lookSide: lookSide(rel),
       fp: fp?{w:fp.w,d:fp.d,farCapped:!!fp.farCapped}:null, poly,
       aim: aim?{lat:aim.lat,lon:aim.lon,dist:aim.dist,unc:aim.unc}:null,
-      cls,
+      cls, phase:S.proj.phase,
       // a dry point has no standing water, flow or trend by definition
       depth: dry ? 'none' : t.depth, depthCm: dry ? null : t.depthCm,
-      flow: dry ? null : t.flow, trend: dry ? null : t.trend,
-      land:[...t.land], edge:!!t.edge, note:'', thumb:null};
+      flow: (dry||post) ? null : t.flow, trend: (dry||post) ? null : t.trend,
+      land: post ? [] : [...t.land],
+      // after-flood details (damage is kept on a not-flooded point too: rain or wind can damage without flooding)
+      damage: post ? [...t.damage] : [], sev: post ? t.sev : null,
+      debris: post && !dry ? t.debris : null, stay: post && !dry ? t.stay : null,
+      edge:!!t.edge, note:'', thumb:null};
     const fl=document.getElementById('flash');
     fl.style.background=FCLASS[cls].col; fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
     cap.thumb = makeThumb(cv);
@@ -1519,9 +1582,7 @@ function rendList(){
   document.getElementById('cc2').textContent=n;
   document.getElementById('cap-badge').textContent=n+' cap';
   const count=k=>S.caps.filter(c=>c.cls===k).length;
-  document.getElementById('n-fl').textContent=count('flooded');
-  document.getElementById('n-wl').textContent=count('waterlogged');
-  document.getElementById('n-dr').textContent=count('dry');
+  phase().buttons.forEach(([k])=>{ const e=document.getElementById('n-'+k); if(e) e.textContent=count(k); });
   document.getElementById('n-edge').textContent=S.caps.filter(c=>c.edge).length;
   if(!n){el.innerHTML=`<div class="es"><div style="font-size:34px">🌊</div>No captures yet.<br/>Aim and tap a class button on the Capture tab.</div>`;return;}
   el.innerHTML=S.caps.map(c=>{
@@ -1573,12 +1634,16 @@ function capProps(c){
   const dObj=findK(DEPTH,c.depth);
   const measured = c.depthCm!==null && c.depthCm!==undefined && c.depthCm!=='';
   return {id:c.id, imgName:c.imgName+'.jpg', timestamp:c.timestamp, project:c.project,
-    flood_class:c.cls||null, flood_class_label:fc?fc.label:null,
+    survey_phase:c.phase||'during', flood_class:c.cls||null, flood_class_label:fc?fc.label:null,
+    was_flooded: c.cls in WAS_FLOODED ? WAS_FLOODED[c.cls] : null,
+    water_depth_kind: c.depth ? (c.phase==='post' ? 'max_from_flood_mark' : 'current') : null,
     water_depth_class:c.depth||null,
     water_depth_cm: measured ? +c.depthCm : (dObj?dObj.cm:null),
     water_depth_source: measured ? 'measured' : (!dObj ? null : (c.cls==='dry' && c.depth==='none') ? 'dry_class' : 'body_scale'),
     flow:c.flow||null, level_trend:c.trend||null,
     flooded_land_cover:(c.land&&c.land.length)?c.land.join(';'):null,
+    damage_type:(c.damage&&c.damage.length)?c.damage.join(';'):null, damage_severity:c.sev||null,
+    debris_left:c.debris||null, water_stayed:c.stay||null,
     water_edge:!!c.edge, note:c.note||null,
     heading_deg:c.az, azimuth_deg:c.az, heading_source:c.headingSrc||null,
     tilt_deg_from_nadir:c.tilt, tilt_deg:c.tilt, camera_height_m:c.camH??null,
@@ -1619,7 +1684,7 @@ function buildEdgeGJ(){
 }
 function csvCell(v){ if(v===null||v===undefined) return ''; const s=String(v); return /[",\n;]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
 function buildCSV(){
-  const cols=['id','imgName','timestamp','project','lat','lon','altitude','gps_accuracy_m','flood_class','water_depth_class','water_depth_cm','water_depth_source','flow','level_trend','flooded_land_cover','water_edge','note','heading_deg','heading_source','tilt_deg_from_nadir','camera_height_m','hfov_deg','aim_lat','aim_lon','aim_dist_m','aim_uncertainty_m','footprint_width_m','footprint_depth_m','travel_bearing_deg','look_side','edited'];
+  const cols=['id','imgName','timestamp','project','lat','lon','altitude','gps_accuracy_m','survey_phase','flood_class','was_flooded','water_depth_kind','water_depth_class','water_depth_cm','water_depth_source','flow','level_trend','flooded_land_cover','damage_type','damage_severity','debris_left','water_stayed','water_edge','note','heading_deg','heading_source','tilt_deg_from_nadir','camera_height_m','hfov_deg','aim_lat','aim_lon','aim_dist_m','aim_uncertainty_m','footprint_width_m','footprint_depth_m','travel_bearing_deg','look_side','edited'];
   const rows=chrono().map(c=>{const p=capProps(c); p.lat=c.lat; p.lon=c.lon; p.altitude=c.altitude; return cols.map(k=>csvCell(p[k])).join(',');});
   return [cols.join(','),...rows].join('\n');
 }
@@ -1631,7 +1696,8 @@ function readme(){
     'Notes:     '+(S.proj.notes||'—'),
     'Started:   '+(S.proj.t||'—'),
     'Exported:  '+new Date().toISOString(),
-    'Captures:  '+S.caps.length+'  (flooded '+count('flooded')+', waterlogged '+count('waterlogged')+', dry '+count('dry')+', water-edge '+S.caps.filter(c=>c.edge).length+')',
+    'Survey:    '+phase().label,
+    'Captures:  '+S.caps.length+'  ('+phase().buttons.map(([k])=>FCLASS[k].label.toLowerCase()+' '+count(k)).join(', ')+', edge '+S.caps.filter(c=>c.edge).length+')',
     '',
     'images/  photos named {Survey}_{ID}_{UTC timestamp}_{lat}_{lon}.jpg',
     'data/    *_captures_points.geojson      one point per photo (observer position) with all tags',
@@ -1640,7 +1706,12 @@ function readme(){
     '         *_captures.csv                 the same records as a table',
     '',
     'Key fields',
-    '  flood_class         flooded | waterlogged | dry',
+    '  survey_phase        during (water still there) | post (after the flood)',
+    '  flood_class         during: flooded | waterlogged | dry;  post: flood_mark | damage | not_flooded',
+    '  was_flooded         true/false, comparable across both phases',
+    '  water_depth_kind    current (during) or max_from_flood_mark (post: height of the mark above ground)',
+    '  damage_type         ;-separated: house, building, road, bridge, crops, embankment, water_supply, power, vehicle, livestock',
+    '  damage_severity     minor | major | destroyed;  debris_left none | thin | thick;  water_stayed lt1d | 1to3d | gt3d',
     '  water_depth_class   none | ankle | knee | waist | chest | above_head (body-scale estimate)',
     '  water_depth_cm      measured value, or the class midpoint (see water_depth_source)',
     '  flow                still | slow | fast;   level_trend  rising | steady | receding',
@@ -1754,7 +1825,7 @@ const DB = {
     return (await DB.req('caps','readonly',s=>s.index('project').getAll(project)))||[]; },
   async putSession(){
     if(!S.proj.name) return;
-    const s={name:S.proj.name,notes:S.proj.notes,camH:S.camH,started:S.proj.t,updated:new Date().toISOString(),count:S.caps.length};
+    const s={name:S.proj.name,notes:S.proj.notes,camH:S.camH,phase:S.proj.phase,started:S.proj.t,updated:new Date().toISOString(),count:S.caps.length};
     if(DB.mem){ DB.memSess[s.name]=s; return; }
     try{ await DB.req('sessions','readwrite',st=>st.put(s)); }catch(e){}
   },
@@ -1837,7 +1908,7 @@ function fitHeader(){ const h=document.getElementById('header').offsetHeight; do
 (function(){ try{ const m=navigator.deviceMemory; if(m&&m<=2) document.documentElement.classList.add('g-lite'); }catch(e){} })();
 fitHeader(); window.addEventListener('resize',fitHeader);
 if(navigator.canShare){ try{ if(navigator.canShare({files:[new File(['x'],'t.zip',{type:'application/zip'})]})) document.getElementById('share-btn').style.display=''; }catch(e){} }
-loadTags(); updTilt();
+loadTags(); applyPhase(); updTilt();
 DB.ready = DB.open();
 /* Offline: a service worker keeps the app, its libraries and the map tiles
    you have already looked at, so it opens and works without a network. */

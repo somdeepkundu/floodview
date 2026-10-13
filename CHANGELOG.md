@@ -2,6 +2,16 @@
 
 The capture app (`index.html`) and the Explorer (`explorer.html`) share one version number, set in `package.json` and in `sw.js`.
 
+## 1.1.0 — 2026-10-13
+
+### Added
+- **After-flood survey.** Choose *During flood* or *After flood* when you start a survey.
+  - After flood, the buttons are **FLOOD MARK**, **DAMAGE** and **NOT FLOODED**.
+  - Tags: flood mark height (body scale or cm), what is damaged (house, road, bridge, crops, embankment, well, power line, vehicle, livestock), how bad (minor / major / destroyed), mud and debris left, and how long the water stayed.
+  - Edge mode traces the outer edge of the flood marks.
+- New export fields: `survey_phase`, `was_flooded` (true/false for both survey types, so during- and after-flood points can be mapped together), `water_depth_kind`, `damage_type`, `damage_severity`, `debris_left`, `water_stayed`.
+- Explorer: colour by *Was it flooded?*, *Damage: how bad* and *During / after flood*; counts of flood marks and damage reports; damage details in the popups, viewer and Review table.
+
 ## 1.0.2 — 2026-10-13
 
 ### Fixed
