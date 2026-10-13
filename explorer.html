@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+<meta name="theme-color" content="#070d1c" id="meta-tc"/>
+<title>FloodView Explorer — Flood Ground-Truth Mapper &amp; Reviewer</title>
+<meta name="description" content="Open FloodView ZIP exports: map flood class, depth, flow and water edges, browse photos, review labels and export GeoJSON/CSV."/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml"/>
+<link rel="stylesheet" href="vendor/fonts/comfortaa.css"/>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css"/>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<style>
+:root{
+  --bg:#070d1c;--surf:#0e1628;--surf2:#172036;--surf3:#1e2840;--bdr:#24304a;
+  --acc:#38bdf8;--acc2:#0284c7;--txt:#e8f0fe;--txt2:#94a3b8;--txt3:#64748b;
+  --ok:#4ade80;--warn:#fbbf24;--err:#f87171;--r:10px;--shadow:0 8px 32px rgba(0,0,0,.55);--pw:340px;
+  --fl:#3b82f6;--wl:#14b8a6;--dr:#f59e0b;--edge:#f472b6;
+  --g-aurora:radial-gradient(110% 60% at 8% -10%,rgba(56,189,248,.16),transparent 60%),
+    radial-gradient(90% 55% at 100% 0%,rgba(59,130,246,.12),transparent 60%),
+    radial-gradient(120% 60% at 50% 115%,rgba(20,184,166,.11),transparent 62%),#070d1c;
+  --g-bar:rgba(9,15,30,.66);--g-panel:rgba(11,18,34,.76);
+  --g-card:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.022));
+  --g-fill:rgba(255,255,255,.05);--g-fill-hi:rgba(255,255,255,.09);
+  --g-edge:rgba(255,255,255,.10);--g-edge-hi:rgba(255,255,255,.16);
+  --g-shine:inset 0 1px 0 rgba(255,255,255,.075);--g-drop:0 14px 34px -14px rgba(0,0,0,.75);
+  --g-blur:blur(16px) saturate(160%);--g-blur-sm:blur(10px) saturate(150%);
+  --on-acc:#03121b;
+}
+[data-theme="light"]{
+  --bg:#eef3fa;--surf:#fff;--surf2:#f1f5fd;--surf3:#e4eaf7;--bdr:#cdd6e8;
+  --acc:#0284c7;--acc2:#0369a1;--txt:#0d1626;--txt2:#475569;--txt3:#7b8aa3;--shadow:0 4px 16px rgba(0,0,0,.1);
+  --g-aurora:radial-gradient(110% 60% at 8% -10%,rgba(2,132,199,.14),transparent 60%),
+    radial-gradient(120% 60% at 50% 115%,rgba(13,148,136,.10),transparent 62%),#eef3fa;
+  --g-bar:rgba(255,255,255,.7);--g-panel:rgba(255,255,255,.8);
+  --g-card:linear-gradient(180deg,rgba(255,255,255,.92),rgba(255,255,255,.66));
+  --g-fill:rgba(255,255,255,.66);--g-fill-hi:rgba(255,255,255,.9);
+  --g-edge:rgba(15,40,80,.11);--g-edge-hi:rgba(15,40,80,.18);
+  --g-shine:inset 0 1px 0 rgba(255,255,255,.9);--g-drop:0 14px 34px -16px rgba(20,40,80,.35);
+}
+html.g-lite *{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+@media (prefers-reduced-transparency:reduce){*{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:'Comfortaa',system-ui,sans-serif;background:var(--g-aurora);color:var(--txt);display:flex;flex-direction:column;font-weight:400;font-variant-numeric:tabular-nums}
+button{font-family:inherit;cursor:pointer;color:inherit}
+input,select{font-family:inherit;color:inherit}
+
+/* Top bar */
+#topbar{height:56px;min-height:56px;background:var(--g-bar);border-bottom:1px solid var(--g-edge);display:flex;align-items:center;gap:10px;padding:0 16px;
+  position:relative;z-index:1100;box-shadow:var(--g-shine),0 6px 20px -14px rgba(0,0,0,.6);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur)}
+.logo{display:flex;align-items:center;gap:9px;min-width:0}
+.logo img{width:34px;height:34px;border-radius:9px;flex-shrink:0;box-shadow:0 6px 16px -6px rgba(56,189,248,.6)}
+.logo-tx{line-height:1.15;min-width:0}
+.logo-tx b{font-size:.9rem;font-weight:700;letter-spacing:.2px;white-space:nowrap}
+.logo-tx b span{color:var(--acc)}
+.logo-tx small{display:block;font-size:.6rem;color:var(--txt3);letter-spacing:.6px;text-transform:uppercase;white-space:nowrap}
+.spacer{flex:1}
+.tbtn{background:var(--g-fill);border:1px solid var(--g-edge);box-shadow:var(--g-shine);color:var(--txt);border-radius:8px;padding:6px 12px;
+  font-size:.75rem;font-weight:700;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.tbtn:hover{background:var(--g-fill-hi);border-color:var(--acc)}
+.tbtn.primary{background:linear-gradient(180deg,#bae6fd 0%,#38bdf8 46%,#0284c7 100%);border-color:transparent;color:var(--on-acc);box-shadow:inset 0 1px 0 rgba(255,255,255,.55),0 8px 20px -10px rgba(56,189,248,.7)}
+#theme-btn{width:36px;height:36px;padding:0;justify-content:center;font-size:17px}
+#toggle-panel-btn{display:none}
+.tabs{display:flex;gap:4px;background:var(--g-fill);border:1px solid var(--g-edge);border-radius:10px;padding:3px;box-shadow:inset 0 1px 3px rgba(0,0,0,.25)}
+.tabbtn{background:transparent;border:none;color:var(--txt2);border-radius:7px;padding:6px 14px;font-size:.76rem;font-weight:700;display:flex;align-items:center;gap:6px}
+.tabbtn.on{background:linear-gradient(180deg,#7dd3fc,#38bdf8);color:var(--on-acc);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 4px 14px -6px rgba(56,189,248,.7)}
+.badge-count{background:rgba(251,191,36,.18);color:var(--warn);font-size:.62rem;font-weight:700;border-radius:20px;padding:1px 6px;min-width:16px;text-align:center}
+.tabbtn.on .badge-count{background:rgba(0,0,0,.2);color:var(--on-acc)}
+
+/* Layout */
+#main{flex:1;display:flex;overflow:hidden;position:relative}
+.view{width:100%;height:100%;display:none;flex-direction:row;overflow:hidden}
+.view.on{display:flex}
+.panel{width:var(--pw);min-width:var(--pw);background:var(--g-panel);border-right:1px solid var(--g-edge);display:flex;flex-direction:column;overflow:hidden;transition:transform .3s cubic-bezier(.4,0,.2,1);z-index:100}
+.panel-scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding-bottom:20px}
+.panel-scroll::-webkit-scrollbar{width:3px}
+.panel-scroll::-webkit-scrollbar-thumb{background:var(--g-edge-hi);border-radius:3px}
+.sec{padding:14px 16px 0}
+.sec-hd{font-size:.63rem;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:var(--txt3);display:flex;align-items:center;gap:6px;padding-bottom:8px;border-bottom:1px solid var(--g-edge);margin-bottom:12px}
+.sec-hd svg{opacity:.6;flex-shrink:0}
+.sec-hd.clk{cursor:pointer;user-select:none}
+.sec-hd.clk:hover{color:var(--acc)}
+.sec-hd .chev{margin-left:auto;flex-shrink:0;transition:transform .28s cubic-bezier(.4,0,.2,1);opacity:.7}
+.sec.collapsed .sec-hd .chev{transform:rotate(-90deg)}
+.sec-body{overflow:hidden;transition:max-height .32s cubic-bezier(.4,0,.2,1),opacity .22s,margin .28s}
+.sec.collapsed>.sec-body{max-height:0!important;opacity:0;margin-bottom:-12px}
+.sec.collapsed .sec-hd{margin-bottom:0;border-bottom-color:transparent}
+.badge-mini{font-size:.6rem;font-weight:700;color:var(--acc);background:rgba(56,189,248,.12);border-radius:20px;padding:1px 7px}
+
+#dropzone{border:2px dashed var(--g-edge-hi);border-radius:var(--r);padding:22px 16px;text-align:center;cursor:pointer;background:var(--g-fill);transition:border-color .2s,background .2s}
+#dropzone:hover,#dropzone.over{border-color:var(--acc);background:rgba(56,189,248,.07)}
+#dropzone .dz-ic{font-size:2rem;display:block;margin-bottom:6px}
+#dropzone .dz-t{font-size:.83rem;font-weight:700;margin-bottom:3px}
+#dropzone .dz-s{font-size:.7rem;color:var(--txt3);line-height:1.5}
+.file-in{display:none}
+#progress-wrap{display:none;padding:12px 16px 0}
+.prog-bar-bg{background:var(--surf3);border-radius:20px;height:6px;overflow:hidden;margin-bottom:6px}
+.prog-bar{height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));border-radius:20px;width:0%;transition:width .25s}
+#prog-label{font-size:.71rem;color:var(--txt3);text-align:center}
+.batch-card{background:var(--g-card);border:1px solid var(--g-edge);box-shadow:var(--g-shine);border-radius:9px;padding:8px 10px;margin-bottom:7px;border-left:3px solid var(--acc);display:flex;align-items:center;gap:8px}
+.batch-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.batch-name{font-size:.78rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.batch-meta{font-size:.63rem;color:var(--txt3)}
+.batch-x{background:none;border:none;color:var(--txt3);font-size:16px;line-height:1;padding:2px 4px;flex-shrink:0}
+.batch-x:hover{color:var(--err)}
+
+.cls-filter{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.cf{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:var(--g-fill);border:1px solid var(--g-edge);font-size:.72rem;font-weight:700;cursor:pointer;user-select:none;transition:opacity .15s}
+.cf i{width:10px;height:10px;border-radius:50%;border:1.5px solid #fff;flex-shrink:0}
+.cf em{font-style:normal;color:var(--txt3);font-weight:400}
+.cf.off{opacity:.38}
+.cf.off i{background:transparent!important}
+.tog-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
+.tog-row .tl{font-size:.76rem;color:var(--txt2)}
+.sw{position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0}
+.sw input{opacity:0;width:0;height:0}
+.sl{position:absolute;inset:0;background:var(--bdr);border-radius:20px;cursor:pointer;transition:.2s;box-shadow:inset 0 1px 3px rgba(0,0,0,.35)}
+.sl::before{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.sw input:checked+.sl{background:var(--acc)}
+.sw input:checked+.sl::before{transform:translateX(16px)}
+.range-row{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.range-row .rl{font-size:.72rem;color:var(--txt2);flex-shrink:0;min-width:78px}
+.range-row input[type=range]{flex:1;accent-color:var(--acc)}
+.range-row .rv{font-size:.71rem;color:var(--acc);font-weight:700;min-width:38px;text-align:right}
+.sel-styled{width:100%;background:var(--g-fill);border:1px solid var(--g-edge);color:var(--txt);border-radius:7px;padding:6px 8px;font-size:.76rem;cursor:pointer;outline:none}
+.sel-styled option{background:var(--surf);color:var(--txt)}
+#stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:0 16px}
+.sc{background:var(--g-card);border:1px solid var(--g-edge);box-shadow:var(--g-shine);border-radius:8px;padding:8px 10px}
+.sc .sk{font-size:.58rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px}
+.sc .sv{font-size:.94rem;font-weight:700;margin-top:2px}
+.ts-scroll{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px}
+.thumb{flex-shrink:0;width:60px;height:46px;border-radius:6px;object-fit:cover;border:2px solid var(--bdr);cursor:zoom-in;transition:transform .15s;box-shadow:0 6px 14px -8px rgba(0,0,0,.7)}
+.thumb:hover{transform:scale(1.05)}
+.act-btn{display:flex;width:calc(100% - 32px);margin:8px 16px 0;border:none;border-radius:var(--r);padding:10px;font-size:.78rem;font-weight:700;align-items:center;justify-content:center;gap:7px}
+.act-btn:active{transform:scale(.98)}
+.act-btn.gradient{background:linear-gradient(180deg,#bae6fd 0%,#38bdf8 46%,#0284c7 100%);color:var(--on-acc);box-shadow:inset 0 1px 0 rgba(255,255,255,.55),0 8px 20px -10px rgba(56,189,248,.7)}
+.act-btn.ghost{background:var(--g-fill);border:1px solid var(--g-edge);color:var(--txt)}
+.act-btn.edge{background:rgba(244,114,182,.1);border:1px solid rgba(244,114,182,.5);color:#f9a8d4}
+[data-theme="light"] .act-btn.edge{color:#be185d}
+
+/* Map */
+.map-wrap{flex:1;position:relative;background:#060b15}
+.leaflet-container{background:#060b15;font-family:inherit}
+[data-theme="light"] .map-wrap,[data-theme="light"] .leaflet-container{background:#dfe6f1}
+[data-theme="dark"] .leaflet-tile-pane{filter:brightness(.82) saturate(.88)}
+[data-theme="dark"] .sat-on .leaflet-tile-pane{filter:none}
+#empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;pointer-events:none;z-index:10;padding:20px}
+#empty img{width:72px;height:72px;opacity:.5}
+#empty p{font-size:.82rem;color:var(--txt3);text-align:center;max-width:280px;line-height:1.55}
+.leaflet-container .leaflet-bar{border:1px solid var(--g-edge-hi)!important;border-radius:12px;overflow:hidden;box-shadow:var(--g-drop)!important}
+.leaflet-container .leaflet-bar a{background:var(--g-bar);color:var(--txt);border-bottom-color:var(--g-edge);-webkit-backdrop-filter:var(--g-blur-sm);backdrop-filter:var(--g-blur-sm)}
+.leaflet-control-layers{background:var(--g-bar)!important;color:var(--txt)!important;border:1px solid var(--g-edge-hi)!important;border-radius:12px!important;-webkit-backdrop-filter:var(--g-blur-sm);backdrop-filter:var(--g-blur-sm)}
+.leaflet-popup-content-wrapper{background:var(--g-bar)!important;border:1px solid var(--g-edge-hi)!important;border-radius:14px!important;color:var(--txt)!important;padding:0!important;overflow:hidden!important;
+  -webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:var(--g-shine),var(--g-drop)!important}
+.leaflet-popup-content{margin:0!important;width:auto!important}
+.leaflet-popup-tip{background:var(--g-bar)!important}
+.leaflet-popup-close-button{color:#fff!important;font-size:18px!important;top:6px!important;right:8px!important;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+.pop-img-wrap{width:100%;height:140px;overflow:hidden;background:var(--surf3);display:flex;align-items:center;justify-content:center;cursor:zoom-in}
+.pop-img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+.pop-img-wrap .no-img{font-size:.72rem;color:var(--txt3)}
+.pop-body{padding:9px 11px 11px}
+.pop-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px}
+.pop-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.pf{background:var(--g-fill);border:1px solid var(--g-edge);border-radius:6px;padding:5px 7px;min-width:0}
+.pk{font-size:.56rem;color:var(--txt3);text-transform:uppercase}
+.pv{font-size:.76rem;font-weight:700;margin-top:1px;overflow-wrap:anywhere}
+.cls-pill{display:inline-block;font-size:.62rem;font-weight:700;padding:2px 8px;border-radius:999px;color:#fff;letter-spacing:.3px;white-space:nowrap}
+.edge-pill{display:inline-block;font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:999px;color:#fff;background:rgba(244,114,182,.35);border:1px solid var(--edge);white-space:nowrap}
+.chg-pill{display:inline-block;font-size:.58rem;font-weight:700;padding:1px 6px;border-radius:999px;color:var(--warn);border:1px solid rgba(251,191,36,.5);white-space:nowrap}
+
+#toast{position:fixed;bottom:104px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--g-bar);border:1px solid var(--err);color:var(--err);
+  padding:9px 18px;border-radius:10px;font-size:.8rem;font-weight:600;z-index:99999;transition:transform .3s,opacity .3s;opacity:0;pointer-events:none;max-width:90vw;text-align:center;
+  -webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:var(--g-shine),var(--g-drop)}
+#toast.ok{border-color:var(--acc2);color:var(--acc)}
+#toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+/* Review tab */
+#tab-review{flex-direction:column}
+.an-toolbar{background:var(--g-panel);border-bottom:1px solid var(--g-edge);padding:10px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.an-toolbar .grp{display:flex;align-items:center;gap:7px}
+.an-toolbar label{font-size:.7rem;color:var(--txt3);font-weight:700}
+.an-body{flex:1;display:flex;overflow:hidden}
+.an-left{width:330px;min-width:330px;background:var(--g-panel);border-right:1px solid var(--g-edge);overflow-y:auto;padding:14px 16px}
+.an-right{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+#an-map{height:270px;flex-shrink:0;border-bottom:1px solid var(--g-edge)}
+.an-table-wrap{flex:1;overflow:auto}
+table.an-table{width:100%;border-collapse:collapse;font-size:.74rem}
+table.an-table thead th{position:sticky;top:0;background:var(--g-bar);-webkit-backdrop-filter:var(--g-blur-sm);backdrop-filter:var(--g-blur-sm);color:var(--txt3);font-size:.62rem;
+  text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:8px 8px;border-bottom:1px solid var(--g-edge);z-index:5;white-space:nowrap}
+table.an-table td{padding:6px 8px;border-bottom:1px solid var(--g-edge);vertical-align:middle}
+table.an-table tr.an-row:hover{background:rgba(56,189,248,.05)}
+table.an-table tr.an-row.sel{background:rgba(56,189,248,.11)}
+table.an-table tr.an-row.focus{box-shadow:inset 3px 0 0 var(--acc)}
+.cell-sel{background:var(--g-fill);border:1px solid var(--g-edge);border-radius:6px;padding:4px 5px;font-size:.72rem;max-width:130px;outline:none}
+.cell-sel option{background:var(--surf);color:var(--txt)}
+.mini-btn{background:var(--g-fill);border:1px solid var(--g-edge);color:var(--txt2);border-radius:6px;padding:4px 9px;font-size:.68rem;font-weight:700;white-space:nowrap}
+.mini-btn:hover{border-color:var(--acc);color:var(--acc)}
+.mini-btn.danger:hover{border-color:var(--err);color:var(--err)}
+.mini-btn.ok:hover{border-color:var(--ok);color:var(--ok)}
+#an-dropzone{border:2px dashed var(--g-edge-hi);border-radius:9px;padding:14px 10px;text-align:center;cursor:pointer;background:var(--g-fill);font-size:.72rem;color:var(--txt3);line-height:1.5}
+#an-dropzone:hover,#an-dropzone.over{border-color:var(--acc);color:var(--acc)}
+.note-box{font-size:.68rem;color:var(--txt2);line-height:1.6;background:var(--g-fill);border:1px solid var(--g-edge);border-radius:9px;padding:10px 12px}
+.note-box b{color:var(--txt)}
+#restore-banner{display:none;align-items:center;gap:12px;background:rgba(56,189,248,.1);border-bottom:1px solid rgba(56,189,248,.3);padding:9px 16px;font-size:.76rem;-webkit-backdrop-filter:var(--g-blur-sm);backdrop-filter:var(--g-blur-sm)}
+#restore-banner b{color:var(--acc)}
+
+/* Lightbox (from CropView Data Explorer v2.2) */
+.thumb,#viewer-img{cursor:zoom-in}
+#lightbox{position:fixed;inset:0;z-index:99998;display:none;background:rgba(3,7,16,0);transition:background .3s ease;padding:0;overflow:hidden;-webkit-backdrop-filter:blur(10px) saturate(130%);backdrop-filter:blur(10px) saturate(130%)}
+#lightbox.show{background:rgba(3,7,16,.92)}
+#lb-container{width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:24px;padding:40px 20px;position:relative}
+#lb-img-wrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:280px;height:100%;position:relative;touch-action:none;user-select:none;-webkit-user-select:none}
+#lb-img-wrap.zoomed{overflow:hidden}
+#lb-img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;box-shadow:0 24px 70px rgba(0,0,0,.7);opacity:0;transform:scale(.88);
+  transition:opacity .3s ease,transform .34s cubic-bezier(.22,1,.36,1);-webkit-user-drag:none;user-select:none;-webkit-touch-callout:none;will-change:transform;cursor:zoom-in}
+#lightbox.show #lb-img{opacity:1;transform:scale(1)}
+#lb-img-wrap.zoomed #lb-img{cursor:grab;box-shadow:none;border-radius:0}
+#lb-img-wrap.dragging #lb-img{cursor:grabbing}
+#lb-img.lb-live{transition:none!important}
+.lb-arrow{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;color:var(--acc);font-size:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:bold;z-index:10}
+.lb-arrow.left{left:16px}.lb-arrow.right{right:16px}
+.lb-arrow:disabled{opacity:.2;cursor:default;pointer-events:none}
+#lb-details{width:300px;border-radius:12px;padding:16px;overflow-y:auto;max-height:calc(100vh - 80px);opacity:0;transform:translateX(20px);transition:opacity .3s ease .1s,transform .3s ease .1s;flex-shrink:0;color:#e8f0fe}
+#lightbox.show #lb-details{opacity:1;transform:translateX(0)}
+.lb-row{margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.08)}
+.lb-row:last-child{border-bottom:none;margin-bottom:0}
+.lb-lbl{font-size:.6rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;font-weight:700}
+.lb-val{font-size:.82rem;font-weight:700;color:#7dd3fc;word-break:break-word;line-height:1.35}
+.lb-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#lb-mini{width:100%;height:130px;border-radius:8px;margin-bottom:14px;overflow:hidden;border:1px solid rgba(56,189,248,.25)}
+#lb-keys{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);font-size:.6rem;color:#94a3b8;padding:6px 13px;border-radius:6px;opacity:0;transition:opacity .3s ease .15s;text-align:center}
+#lightbox.show #lb-keys{opacity:1}
+#lb-keys b{color:#7dd3fc;font-weight:700;margin:0 3px}
+#lb-close{position:absolute;top:16px;right:20px;width:36px;height:36px;border-radius:50%;color:#e2e8f0;font-size:20px;line-height:1;display:flex;align-items:center;justify-content:center;z-index:11}
+#lb-zoom{position:absolute;top:16px;left:50%;transform:translateX(-50%);display:flex;gap:4px;padding:4px;z-index:11;border-radius:999px;opacity:0;transition:opacity .3s ease .15s}
+#lightbox.show #lb-zoom{opacity:1}
+#lb-zoom button{min-width:34px;height:34px;border:none;border-radius:999px;background:transparent;color:#e2e8f0;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center}
+#lb-zoom button:hover{background:rgba(56,189,248,.18);color:#7dd3fc}
+#lb-zoom button:disabled{opacity:.3;cursor:default;background:transparent}
+#lb-zoom-lvl{min-width:52px!important;font-size:.72rem!important;color:#7dd3fc!important}
+#lb-details,#lb-zoom,#lb-keys,.lb-arrow,#lb-close{background:rgba(10,16,30,.66)!important;border:1px solid rgba(255,255,255,.14)!important;
+  -webkit-backdrop-filter:var(--g-blur-sm);backdrop-filter:var(--g-blur-sm);box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 10px 26px -12px rgba(0,0,0,.8)}
+#lb-details .cell-sel{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.14);color:#e8f0fe;max-width:none;width:100%}
+#lb-keys .k-touch{display:none}
+@media (hover:none) and (pointer:coarse){#lb-keys .k-desk{display:none}#lb-keys .k-touch{display:inline}#lb-zoom button{min-width:40px;height:40px}}
+@media(max-width:1000px){#lb-details{width:260px}#lb-container{gap:16px;padding:30px 16px}}
+@media(max-width:900px){#lb-details{display:none}.lb-arrow{width:44px;height:44px;font-size:20px}}
+@media(max-width:600px){.lb-arrow{width:38px;height:38px;font-size:17px}#lb-container{padding:20px 6px}#lb-keys{font-size:.56rem;padding:5px 10px}}
+
+/* Bottom colour legend (from CropView Data Explorer v2.1) */
+#col-legend{position:absolute;left:12px;right:12px;bottom:22px;z-index:800;display:flex;align-items:center;gap:18px;padding:10px 18px 8px;border-radius:12px;border:1px solid var(--g-edge-hi);box-shadow:var(--g-drop);
+  background:var(--g-bar);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);color:var(--txt);font-size:.68rem;pointer-events:auto}
+#col-legend .cl-title{flex-shrink:0;font-weight:700;font-size:.72rem;display:flex;flex-direction:column;line-height:1.25;min-width:84px}
+#col-legend .cl-title small{font-weight:500;font-size:.62rem;color:var(--txt3)}
+#col-legend .cl-scale{flex:1;min-width:0;padding-bottom:2px}
+#col-legend .cl-bar{height:9px;border-radius:5px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+#col-legend .cl-ticks{position:relative;height:18px;margin-top:2px}
+#col-legend .cl-tick{position:absolute;top:0;padding-top:6px;white-space:nowrap;color:var(--txt2)}
+#col-legend .cl-tick b{position:absolute;top:0;left:50%;width:1px;height:5px;background:var(--txt3)}
+#col-legend .cl-tick.l b{left:0}#col-legend .cl-tick.r b{left:auto;right:0}
+#col-legend .cl-tick.end{color:var(--txt);font-weight:700}
+#col-legend .cl-chips{flex:1;display:flex;flex-wrap:wrap;gap:6px 14px;max-height:62px;overflow:auto}
+#col-legend .cl-chip{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+#col-legend .cl-chip i{width:10px;height:10px;border-radius:50%;border:1.5px solid #fff;flex-shrink:0}
+#col-legend .cl-chip em{font-style:normal;color:var(--txt3)}
+#col-legend .cl-extra{flex-shrink:0;display:flex;flex-direction:column;gap:3px;font-size:.62rem;color:var(--txt2);border-left:1px solid var(--g-edge);padding-left:12px}
+#col-legend .cl-extra span{display:flex;align-items:center;gap:6px;white-space:nowrap}
+
+@media(max-width:900px){:root{--pw:100vw}.an-left{width:260px;min-width:260px}}
+@media(max-width:720px){
+  .view{flex-direction:column}
+  .panel{width:100%;min-width:100%;border-right:none;border-top:1px solid var(--g-edge);position:absolute;bottom:0;left:0;top:auto;z-index:900;max-height:68vh;border-radius:16px 16px 0 0;transform:translateY(100%);
+    background:var(--g-bar);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:0 -20px 50px -20px rgba(0,0,0,.7)}
+  .panel.open{transform:translateY(0)}
+  .panel::before{content:'';display:block;width:36px;height:4px;background:var(--g-edge-hi);border-radius:4px;margin:10px auto 0}
+  #toggle-panel-btn{display:flex!important}
+  .an-body{flex-direction:column}
+  .an-left{width:100%;min-width:100%;max-height:34vh;border-right:none;border-bottom:1px solid var(--g-edge)}
+  #an-map{height:200px}
+  .logo-tx small{display:none}
+  #topbar{padding:0 10px;gap:7px}
+  .tabbtn{padding:6px 10px}
+  #col-legend{left:6px;right:6px;gap:10px;padding:8px 12px 6px;bottom:12px}
+  #col-legend .cl-title{min-width:0}
+  #col-legend .cl-extra{display:none}
+}
+@media(max-width:420px){.logo-tx{display:none}.tbtn .lbl{display:none}}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="logo">
+    <img src="icons/icon.svg" alt=""/>
+    <div class="logo-tx"><b>Flood<span>View</span> Explorer</b><small>Flood ground-truth mapper &amp; reviewer · v1.0</small></div>
+  </div>
+  <div class="tabs">
+    <button class="tabbtn on" data-tab="map" onclick="switchTab('map')">🗺️ Map</button>
+    <button class="tabbtn" data-tab="review" onclick="switchTab('review')">✅ Review <span class="badge-count" id="rev-badge" style="display:none">0</span></button>
+  </div>
+  <div class="spacer"></div>
+  <button class="tbtn" id="reset-btn" style="display:none" onclick="resetApp()" title="Unload everything">
+    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg><span class="lbl">Reset</span>
+  </button>
+  <button class="tbtn" id="toggle-panel-btn" onclick="togglePanel()">
+    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg><span class="lbl">Controls</span>
+  </button>
+  <button class="tbtn" id="theme-btn" onclick="toggleTheme()" title="Light / dark">🌙</button>
+</div>
+
+<div id="restore-banner">
+  <span>💾 Found your last review session: <span id="restore-info"></span> (labels and edits only; reload the ZIPs for photos)</span>
+  <span class="spacer"></span>
+  <button class="mini-btn ok" onclick="doRestore()">Restore</button>
+  <button class="mini-btn" onclick="dismissRestore()">Dismiss</button>
+</div>
+
+<div id="main">
+  <!-- ══════════════ MAP TAB ══════════════ -->
+  <div class="view on" id="tab-map">
+    <div class="panel" id="map-panel">
+      <div class="panel-scroll">
+        <div class="sec" id="sec-upload">
+          <div class="sec-hd"><svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Open ZIP exports</div>
+          <div id="dropzone" onclick="document.getElementById('file-in').click()" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="handleDrop(event)">
+            <span class="dz-ic">📦</span>
+            <div class="dz-t">Drop FloodView ZIP(s) here</div>
+            <div class="dz-s">or tap to choose. Any number of surveys, each in its own colour. CropView ZIPs open too.</div>
+          </div>
+          <input type="file" id="file-in" class="file-in" accept=".zip,application/zip" multiple onchange="handleFiles(this.files)"/>
+        </div>
+        <div id="progress-wrap"><div class="prog-bar-bg"><div class="prog-bar" id="prog-bar"></div></div><div id="prog-label">Unpacking…</div></div>
+
+        <div class="sec" id="sec-sets" style="margin-top:6px">
+          <div class="sec-hd"><svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Loaded surveys</div>
+          <div id="batch-list" style="font-size:.72rem;color:var(--txt3)">Nothing loaded yet.</div>
+        </div>
+
+        <div class="sec" style="margin-top:6px">
+          <div class="sec-hd"><svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>Show</div>
+          <div class="cls-filter" id="cls-filter"></div>
+          <div class="tog-row"><span class="tl">Water-edge points only</span><label class="sw"><input type="checkbox" id="tog-edgeonly" onchange="redraw()"/><span class="sl"></span></label></div>
+        </div>
+
+        <div class="sec" style="margin-top:6px">
+          <div class="sec-hd"><svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>Map layers</div>
+          <div style="margin-bottom:12px">
+            <div style="font-size:.73rem;color:var(--txt2);margin-bottom:5px">Colour points by</div>
+            <select class="sel-styled" id="sel-col" onchange="redraw()">
+              <option value="class" selected>Flood class</option>
+              <option value="depth">Water depth</option>
+              <option value="flow">Flow</option>
+              <option value="trend">Water level trend</option>
+              <option value="time">Capture time</option>
+              <option value="batch">Survey / set</option>
+              <option value="azimuth">Look direction</option>
+              <option value="tilt">Tilt</option>
+            </select>
+          </div>
+          <div class="tog-row"><span class="tl">Ground footprints</span><label class="sw"><input type="checkbox" id="tog-fp" checked onchange="redraw()"/><span class="sl"></span></label></div>
+          <div class="tog-row"><span class="tl">Crosshair points (where each photo was aimed)</span><label class="sw"><input type="checkbox" id="tog-aim" checked onchange="redraw()"/><span class="sl"></span></label></div>
+          <div class="tog-row"><span class="tl">Water-edge trace</span><label class="sw"><input type="checkbox" id="tog-edge" checked onchange="redraw()"/><span class="sl"></span></label></div>
+          <div class="tog-row"><span class="tl">Look-direction arrows</span><label class="sw"><input type="checkbox" id="tog-arr" onchange="redraw()"/><span class="sl"></span></label></div>
+          <div class="tog-row"><span class="tl">Field-of-view cones</span><label class="sw"><input type="checkbox" id="tog-cone" onchange="redraw()"/><span class="sl"></span></label></div>
+          <div class="tog-row"><span class="tl" title="When a point is clicked, show its arrow and cone and hide every other point's">Only the clicked point's arrow &amp; cone</span><label class="sw"><input type="checkbox" id="tog-solo" onchange="redraw()"/><span class="sl"></span></label></div>
+          <div class="tog-row"><span class="tl">Walking path</span><label class="sw"><input type="checkbox" id="tog-path" onchange="redraw()"/><span class="sl"></span></label></div>
+          <div class="range-row"><span class="rl">Arrow length</span><input type="range" id="sl-len" min="5" max="400" value="40" oninput="arrowLen=+this.value;document.getElementById('sl-len-v').textContent=this.value+'m';redraw()"/><span class="rv" id="sl-len-v">40m</span></div>
+          <div class="range-row"><span class="rl">Arrow head</span><input type="range" id="sl-head" min="5" max="60" value="20" oninput="arrowHead=+this.value/100;document.getElementById('sl-head-v').textContent=this.value+'%';redraw()"/><span class="rv" id="sl-head-v">20%</span></div>
+        </div>
+
+        <div class="sec" id="viewer-sec" style="display:none;margin-top:14px">
+          <div class="sec-hd"><svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Selected point</div>
+          <div style="background:var(--g-card);border:1px solid var(--g-edge);border-radius:var(--r);overflow:hidden;margin-bottom:10px">
+            <div style="width:100%;height:180px;background:var(--surf3);display:flex;align-items:center;justify-content:center;overflow:hidden">
+              <img id="viewer-img" alt="" style="width:100%;height:100%;object-fit:cover;display:block" onclick="if(selectedCapture) openLightboxFor(selectedCapture, visibleCaps().filter(c=>c.imgUrl), 'map')"/>
+            </div>
+            <div style="padding:10px 12px">
+              <div class="pop-top" id="viewer-top"></div>
+              <div id="viewer-grid" class="pop-grid"></div>
+              <div id="viewer-note" style="margin-top:8px;font-size:.68rem;color:var(--txt2);line-height:1.5"></div>
+            </div>
+          </div>
+          <button class="mini-btn" style="width:100%;padding:7px" onclick="closeViewer()">Close</button>
+        </div>
+
+        <div class="sec" style="margin-top:14px">
+          <div class="sec-hd"><svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Summary</div>
+          <div id="stats-grid">
+            <div class="sc"><div class="sk">Points</div><div class="sv" id="st-n">—</div></div>
+            <div class="sc"><div class="sk">Photos</div><div class="sv" id="st-img">—</div></div>
+            <div class="sc"><div class="sk">🌊 Flooded</div><div class="sv" id="st-fl" style="color:#60a5fa">—</div></div>
+            <div class="sc"><div class="sk">💧 Waterlogged</div><div class="sv" id="st-wl" style="color:#2dd4bf">—</div></div>
+            <div class="sc"><div class="sk">☀️ Dry</div><div class="sv" id="st-dr" style="color:#fbbf24">—</div></div>
+            <div class="sc"><div class="sk">〰 Edge points</div><div class="sv" id="st-edge" style="color:#f472b6">—</div></div>
+            <div class="sc"><div class="sk">Deepest</div><div class="sv" id="st-depth">—</div></div>
+            <div class="sc"><div class="sk">Time span</div><div class="sv" id="st-span" style="font-size:.74rem">—</div></div>
+          </div>
+        </div>
+
+        <div class="sec" style="margin-top:14px">
+          <div class="sec-hd"><svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Photos</div>
+          <div id="thumb-strip" style="display:none"><div class="ts-scroll" id="thumb-row"></div></div>
+          <div id="no-imgs" style="font-size:.71rem;color:var(--txt3)">No photos loaded yet.</div>
+        </div>
+
+        <div id="export-box" style="display:none">
+          <button class="act-btn gradient" onclick="downloadPointsJSON()">⬇ Export reviewed points (GeoJSON)</button>
+          <button class="act-btn edge" onclick="downloadEdgeJSON()">〰 Export water edges (GeoJSON)</button>
+          <button class="act-btn ghost" onclick="downloadCSV()">⬇ Export table (CSV)</button>
+          <div style="margin:8px 16px 16px;font-size:.66rem;color:var(--txt3);text-align:center;line-height:1.5">Points only, no photos. Opens in QGIS or any GIS tool. Your review edits are included, alongside the original field labels (<i>field_*</i>), and the file reopens here on the Review tab.</div>
+        </div>
+      </div>
+    </div>
+    <div class="map-wrap" id="map-wrap" ondragover="event.preventDefault()" ondrop="handleDrop(event)">
+      <div id="empty"><img src="icons/icon.svg" alt=""/><p>Open one or more FloodView ZIP exports to map flooded, waterlogged and dry points, crosshair points and water edges.</p>
+        <button class="tbtn primary" style="pointer-events:auto;padding:9px 18px" onclick="document.getElementById('file-in').click()">📦 Open ZIP(s)</button>
+        <p style="font-size:.7rem;margin-top:-4px">or drag them onto the map</p></div>
+      <div id="map" style="width:100%;height:100%"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════ REVIEW TAB ══════════════ -->
+  <div class="view" id="tab-review">
+    <div class="an-toolbar">
+      <div class="grp"><label>Survey</label><select class="sel-styled" id="rv-project" style="width:150px" onchange="refreshReview()"><option value="__all__">All surveys</option></select></div>
+      <div class="grp"><label>Class</label><select class="sel-styled" id="rv-class" style="width:130px" onchange="refreshReview()"><option value="__all__">All</option></select></div>
+      <div class="grp"><label>Changed only</label><label class="sw"><input type="checkbox" id="rv-changed" onchange="refreshReview()"/><span class="sl"></span></label></div>
+      <div class="grp"><label>Hide deleted</label><label class="sw"><input type="checkbox" id="rv-hide-del" checked onchange="refreshReview()"/><span class="sl"></span></label></div>
+      <span class="spacer"></span>
+      <span style="font-size:.72rem;color:var(--txt3)" id="rv-count">0 / 0 points</span>
+      <span style="font-size:.72rem;color:var(--acc)">Selected: <b id="rv-sel-count">0</b></span>
+      <button class="mini-btn" onclick="selectAllFiltered()">Select shown</button>
+      <button class="mini-btn" onclick="clearSelection()">Clear</button>
+      <select class="cell-sel" id="rv-bulk-class"><option value="">Set class…</option></select>
+      <button class="mini-btn ok" onclick="applyBulk('class')">Apply</button>
+      <button class="mini-btn" onclick="applyBulk('edge-on')">Mark edge</button>
+      <button class="mini-btn" onclick="applyBulk('edge-off')">Unmark edge</button>
+      <button class="mini-btn danger" onclick="applyBulk('delete')">Delete</button>
+      <button class="mini-btn" onclick="applyBulk('restore')">Restore</button>
+      <button class="tbtn primary" onclick="downloadPointsJSON()">⬇ Export</button>
+    </div>
+    <div class="an-body">
+      <div class="an-left">
+        <div class="note-box"><b>Reviewing:</b> fix the class, depth or edge flag of any point in the table, the map or the photo viewer. The original field labels are kept, so every change stays traceable (<b>field_flood_class</b> and friends in the export). Your edits are saved in this browser as you go.</div>
+        <div class="sec-hd" style="margin:16px 0 10px">Reopen a reviewed file</div>
+        <div id="an-dropzone" onclick="document.getElementById('an-file-in').click()" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="handleReviewDrop(event)">
+          📥 Drop or tap to load an exported points GeoJSON<br/>(matched by ID; restores classes, depths, edge flags and deletions)
+        </div>
+        <input type="file" id="an-file-in" class="file-in" accept=".json,.geojson" onchange="if(this.files[0])handlePointsJSONFile(this.files[0])"/>
+        <div id="an-focus" style="display:none;margin-top:16px"></div>
+      </div>
+      <div class="an-right">
+        <div id="an-map"></div>
+        <div class="an-table-wrap">
+          <table class="an-table">
+            <thead><tr><th style="width:26px"></th><th style="width:44px">Photo</th><th>Time · survey</th><th>Class</th><th>Depth</th><th>Edge</th><th>Tags</th><th style="width:70px"></th></tr></thead>
+            <tbody id="rv-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<div id="lightbox" onclick="if(event.target.id==='lightbox'||event.target.id==='lb-container') closeLightbox()">
+  <div id="lb-container">
+    <button class="lb-arrow left" onclick="navLightbox(-1)" title="Previous (←)">‹</button>
+    <div id="lb-img-wrap"><img id="lb-img" alt="" draggable="false" onclick="event.stopPropagation()"/></div>
+    <div id="lb-details"><div id="lb-mini"></div><div id="lb-details-content"></div></div>
+    <button class="lb-arrow right" onclick="navLightbox(1)" title="Next (→)">›</button>
+    <button id="lb-close" onclick="closeLightbox()" title="Close (Esc)">×</button>
+    <div id="lb-zoom" onclick="event.stopPropagation()">
+      <button id="lb-zoom-out" onclick="lbZoomBy(1/1.6)" title="Zoom out (−)" aria-label="Zoom out">−</button>
+      <button id="lb-zoom-lvl" onclick="lbZoomReset(true)" title="Fit to screen (0)" aria-label="Fit to screen">1×</button>
+      <button id="lb-zoom-in" onclick="lbZoomBy(1.6)" title="Zoom in (+)" aria-label="Zoom in">+</button>
+    </div>
+    <div id="lb-keys"><span class="k-desk"><b>←→</b>Navigate &nbsp;|&nbsp; <b>Space</b>Next &nbsp;|&nbsp; <b>Scroll / + −</b>Zoom &nbsp;|&nbsp; <b>Double-click</b>2.5× &nbsp;|&nbsp; <b>Esc</b>Close &nbsp;|&nbsp; <b>I</b>Info</span><span class="k-touch"><b>Pinch</b>Zoom &nbsp;|&nbsp; <b>Double-tap</b>2.5× &nbsp;|&nbsp; <b>Drag</b>Move &nbsp;|&nbsp; <b>Swipe</b>Next</span></div>
+  </div>
+</div>
+
+<script>
+/* FloodView Explorer 1.0 — built on the CropView Data Explorer v2.3
+   (multi-ZIP loading, legend bar, point fan-out, lightbox with zoom),
+   reworked around flood class, depth, flow, trend, crosshair points and
+   water edges, with a review workflow that keeps the original field labels. */
+const APP_VERSION='1.0.0';
+let captures=[];            // every point from every ZIP / import
+let batches=[];             // {id,name,fileName,count,imgCount,app}
+let nextBatchId=1;
+let projectColorMap={};
+const PALETTE=['#38bdf8','#f59e0b','#a78bfa','#34d399','#f87171','#818cf8','#fb923c','#4ade80','#e879f9','#facc15','#fb7185','#2dd4bf','#c084fc','#60a5fa'];
+const FCLASS={
+  flooded:{label:'Flooded',icon:'🌊',col:'#3b82f6'},
+  waterlogged:{label:'Waterlogged',icon:'💧',col:'#14b8a6'},
+  dry:{label:'Dry',icon:'☀️',col:'#f59e0b'},
+};
+const UNL={label:'Unlabelled',icon:'·',col:'#94a3b8'}, EDGE_COL='#f472b6';
+const DEPTH=[
+  {k:'none',label:'None',cm:0},{k:'ankle',label:'Ankle',cm:10},{k:'knee',label:'Knee',cm:45},
+  {k:'waist',label:'Waist',cm:90},{k:'chest',label:'Chest',cm:130},{k:'above_head',label:'Above head',cm:170}];
+const FLOW={still:{label:'Still',col:'#38bdf8'},slow:{label:'Slow',col:'#a78bfa'},fast:{label:'Fast',col:'#ef4444'}};
+const TREND={rising:{label:'↑ Rising',col:'#ef4444'},steady:{label:'→ Steady',col:'#a3a3a3'},receding:{label:'↓ Receding',col:'#22c55e'}};
+const LANDL={cropland:'Cropland',road:'Road',settlement:'Settlement',open_land:'Open land',vegetation:'Trees / grass',water_body:'River / pond'};
+const EDGE_GAP_M=150, EDGE_GAP_MS=20*60*1000;   // same rule as the capture app
+
+const CARTO_URL='https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+const CARTO_ATTR='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>';
+let arrowLen=40, arrowHead=.2;
+let isDark=true, mapReady=false;
+let theMap,gFP,gArrow,gCone,gPath,gAim,gEdge,gPts;
+let imgBlobs={};
+let selectedCapture=null, activeTab='map';
+let hiddenClasses=new Set();
+let annotMap,annotLayer,rvSelection=new Set(),rvFocused=null;
+let lbList=[],lbIndex=-1,lbContext='map',lbMiniMap=null,lbMiniLayer=null,lbDetailsVisible=true;
+
+// ═══ UTIL ═══
+const esc=s=>String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+const jsq=s=>esc(JSON.stringify(String(s)));   // safe string literal inside an onclick="" attribute
+function toggleTheme(){
+  isDark=!isDark;
+  document.documentElement.dataset.theme=isDark?'dark':'light';
+  document.getElementById('theme-btn').textContent=isDark?'🌙':'☀️';
+  document.getElementById('meta-tc').content=isDark?'#070d1c':'#eef3fa';
+  try{localStorage.setItem('fv_x_theme',isDark?'dark':'light');}catch(e){}
+}
+function togglePanel(){ const p=activeTab==='map'?document.getElementById('map-panel'):null; if(p) p.classList.toggle('open'); }
+function showToast(msg,type='err',ms=3600){
+  const t=document.getElementById('toast'); t.textContent=msg; t.className=(type==='ok'?'ok':'')+' show';
+  clearTimeout(t._tid); t._tid=setTimeout(()=>t.classList.remove('show'),ms);
+}
+function colorFor(name){
+  const key=name||'Unassigned';
+  if(!projectColorMap[key]) projectColorMap[key]=PALETTE[Object.keys(projectColorMap).length%PALETTE.length];
+  return projectColorMap[key];
+}
+const clsInfo=k=>FCLASS[k]||UNL;
+const clsKey=c=>FCLASS[c.cls]?c.cls:'none';
+function activeCaps(){ return captures.filter(c=>!c.deleted); }
+function visibleCaps(){
+  const edgeOnly=document.getElementById('tog-edgeonly').checked;
+  return activeCaps().filter(c=>!hiddenClasses.has(clsKey(c)) && (!edgeOnly||c.edge));
+}
+function depthCmOf(c){
+  if(c.depthCm!==null && c.depthCm!==undefined && c.depthCm!=='' && !isNaN(+c.depthCm)) return +c.depthCm;
+  const d=DEPTH.find(x=>x.k===c.depth); return d?d.cm:null;
+}
+function depthText(c){
+  const d=DEPTH.find(x=>x.k===c.depth);
+  const measured=c.depthSource==='measured' && c.depthCm!==null && c.depthCm!==undefined;
+  if(measured) return c.depthCm+' cm'+(d?' ('+d.label.toLowerCase()+')':'');
+  return d?d.label+(d.cm?' ~'+d.cm+' cm':''):'—';
+}
+const landText=c=>c.land?String(c.land).split(';').filter(Boolean).map(k=>LANDL[k]||k).join(', '):'';
+const fmtTime=ts=>ts?new Date(ts).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—';
+const isChanged=c=>c.field && (c.cls!==c.field.cls || c.depth!==c.field.depth || !!c.edge!==!!c.field.edge);
+function clsPill(c){ const i=clsInfo(c.cls); return `<span class="cls-pill" style="background:${i.col}">${i.icon} ${i.label.toUpperCase()}</span>`; }
+function geoDist(lat1,lon1,lat2,lon2){
+  const R=6371008.8,D=Math.PI/180,dLat=(lat2-lat1)*D,dLon=(lon2-lon1)*D;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*D)*Math.cos(lat2*D)*Math.sin(dLon/2)**2;
+  return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function destPt(lat,lon,bearDeg,distM){
+  const R=6371008.8,δ=distM/R,θ=bearDeg*Math.PI/180,φ1=lat*Math.PI/180,λ1=lon*Math.PI/180;
+  const φ2=Math.asin(Math.sin(φ1)*Math.cos(δ)+Math.cos(φ1)*Math.sin(δ)*Math.cos(θ));
+  const λ2=λ1+Math.atan2(Math.sin(θ)*Math.sin(δ)*Math.cos(φ1),Math.cos(δ)-Math.sin(φ1)*Math.sin(φ2));
+  return [φ2*180/Math.PI, λ2*180/Math.PI];
+}
+
+// collapsible sections (map panel)
+function initCollapsibles(){
+  document.querySelectorAll('#map-panel .sec').forEach(sec=>{
+    const hd=sec.querySelector(':scope > .sec-hd');
+    if(!hd||sec.querySelector(':scope > .sec-body')) return;
+    const body=document.createElement('div'); body.className='sec-body';
+    while(hd.nextSibling) body.appendChild(hd.nextSibling);
+    sec.appendChild(body);
+    hd.classList.add('clk');
+    hd.insertAdjacentHTML('beforeend',`<svg class="chev" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>`);
+    hd.addEventListener('click',()=>toggleSection(sec));
+    body.style.maxHeight='none';
+  });
+}
+function toggleSection(sec,force){
+  const collapse=force===undefined?!sec.classList.contains('collapsed'):force;
+  const body=sec.querySelector(':scope > .sec-body'); if(!body) return;
+  if(collapse){ body.style.maxHeight=body.scrollHeight+'px'; requestAnimationFrame(()=>{ sec.classList.add('collapsed'); body.style.maxHeight='0px'; }); }
+  else{ sec.classList.remove('collapsed'); body.style.maxHeight=body.scrollHeight+'px'; setTimeout(()=>{ if(!sec.classList.contains('collapsed')) body.style.maxHeight='none'; },340); }
+}
+
+// ═══ TABS ═══
+function switchTab(tab){
+  activeTab=tab;
+  document.getElementById('tab-map').classList.toggle('on',tab==='map');
+  document.getElementById('tab-review').classList.toggle('on',tab==='review');
+  document.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
+  if(tab==='review'){ initAnnotMap(); refreshReview(); setTimeout(()=>annotMap&&annotMap.invalidateSize(),60); }
+  else setTimeout(()=>theMap&&theMap.invalidateSize(),60);
+}
+function updateReviewBadge(){
+  const n=activeCaps().filter(c=>!c.cls).length;
+  const b=document.getElementById('rev-badge');
+  if(n>0){ b.style.display='inline-block'; b.textContent=n; b.title=n+' unlabelled point(s)'; } else b.style.display='none';
+}
+
+// ═══ RESET ═══
+function resetApp(){
+  if(captures.length && !confirm('Unload all surveys and review edits from this page? (Export first if you need your edits.)')) return;
+  Object.values(imgBlobs).forEach(u=>{ try{URL.revokeObjectURL(u)}catch(e){} });
+  captures=[]; batches=[]; imgBlobs={}; projectColorMap={}; selectedCapture=null; rvSelection.clear(); hiddenClasses.clear();
+  try{localStorage.removeItem('fv_x_session');}catch(e){}
+  document.getElementById('file-in').value='';
+  document.getElementById('viewer-sec').style.display='none';
+  const up=document.getElementById('sec-upload'); toggleSection(up,false);
+  const bdg=up.querySelector('.badge-mini'); if(bdg) bdg.remove(); up._badge=null;
+  closeLightbox(); updateUI();
+  if(gFP) [gFP,gArrow,gCone,gPath,gAim,gEdge,gPts].forEach(g=>g.clearLayers());
+  if(colorLegendEl) colorLegendEl.style.display='none';
+  refreshReview();
+}
+
+// ═══ LOAD ZIPs ═══
+function handleDrop(ev){
+  ev.preventDefault(); const dz=document.getElementById('dropzone'); dz.classList.remove('over');
+  const files=Array.from(ev.dataTransfer.files).filter(f=>/\.zip$/i.test(f.name));
+  if(files.length) handleFiles(files);
+  else{
+    const gj=Array.from(ev.dataTransfer.files).find(f=>/\.(geo)?json$/i.test(f.name));
+    if(gj) handlePointsJSONFile(gj); else showToast('Drop .zip export(s) from FloodView or CropView');
+  }
+}
+async function handleFiles(fileList){
+  const files=Array.from(fileList).filter(f=>/\.zip$/i.test(f.name));
+  if(!files.length){ showToast('Choose .zip export(s)'); return; }
+  document.getElementById('progress-wrap').style.display='block';
+  const before=captures.length;
+  for(let i=0;i<files.length;i++){
+    setProgress(5+i*90/files.length,`Opening ${i+1}/${files.length}: ${files[i].name}`);
+    try{ const zip=await JSZip.loadAsync(await files[i].arrayBuffer()); await parseZip(zip,files[i].name,i,files.length); }
+    catch(e){ console.error(e); showToast('Could not read '+files[i].name+': '+e.message); }
+  }
+  document.getElementById('progress-wrap').style.display='none';
+  document.getElementById('file-in').value='';
+  updateUI(); initMap(true); redraw(); refreshReview(); autosave();
+  const up=document.getElementById('sec-upload');
+  if(batches.length){
+    toggleSection(up,true);
+    const hd=up.querySelector('.sec-hd');
+    if(!up._badge){ const b=document.createElement('span'); b.className='badge-mini'; hd.insertBefore(b,hd.querySelector('.chev')); up._badge=b; }
+    up._badge.textContent=batches.length+' survey'+(batches.length===1?'':'s');
+  }
+  if(window.innerWidth<=720) document.getElementById('map-panel').classList.remove('open');
+  const added=captures.length-before;
+  if(added) showToast(`Loaded ${added} point${added===1?'':'s'}`,'ok',2400);
+}
+function setProgress(pct,label){ document.getElementById('prog-bar').style.width=pct+'%'; document.getElementById('prog-label').textContent=label; }
+const num=v=>(v===null||v===undefined||v===''||isNaN(+v))?null:+v;
+function capFromProps(p,co,extra){
+  const fc=FCLASS[p.flood_class]?p.flood_class:null;
+  const aimLat=num(p.aim_lat), aimLon=num(p.aim_lon);
+  const c=Object.assign({
+    id:p.id, project:p.project, lat:co[1], lon:co[0], alt:num(co[2])??num(p.altitude)??0,
+    azimuth:num(p.azimuth_deg)??num(p.heading_deg)??num(p.azimuth)??0,
+    tilt:num(p.tilt_deg_from_nadir)??num(p.tilt_deg)??num(p.tilt)??0,
+    hfov:num(p.hfov_deg)??num(p.hfov)??65, camH:num(p.camera_height_m),
+    accuracy:num(p.gps_accuracy_m)??num(p.accuracy)??0,
+    fpW:num(p.footprint_width_m)??num(p.fpW)??0, fpD:num(p.footprint_depth_m)??num(p.fpD)??0,
+    imgName:p.imgName||'', ts:p.timestamp||p.ts||'',
+    cls:fc, depth:p.water_depth_class||null, depthCm:num(p.water_depth_cm), depthSource:p.water_depth_source||null,
+    flow:p.flow||null, trend:p.level_trend||null, land:p.flooded_land_cover||null,
+    edge:p.water_edge===true||p.water_edge==='true', note:p.note||'',
+    aim:(aimLat!==null&&aimLon!==null)?{lat:aimLat,lon:aimLon,dist:num(p.aim_dist_m),unc:num(p.aim_uncertainty_m)}:null,
+    kc:p.kc_stage??null, deleted:p.deleted===true
+  },extra||{});
+  // original field labels, kept for the audit trail
+  c.field={cls:FCLASS[p.field_flood_class]?p.field_flood_class:(p.field_flood_class===undefined?c.cls:null),
+           depth:p.field_water_depth_class!==undefined?(p.field_water_depth_class||null):c.depth,
+           edge:p.field_water_edge!==undefined?(p.field_water_edge===true||p.field_water_edge==='true'):c.edge};
+  return c;
+}
+async function parseZip(zip,srcFileName,idx,total){
+  const geoKey=Object.keys(zip.files).find(k=>/_captures_points\.geojson$/i.test(k))||Object.keys(zip.files).find(k=>/captures_points/i.test(k));
+  if(!geoKey){ showToast('No *_captures_points.geojson in '+srcFileName); return; }
+  const geo=JSON.parse(await zip.files[geoKey].async('string'));
+  const app=(geo.metadata&&geo.metadata.app)||'';
+  const pname=(geo.metadata&&geo.metadata.project)||geoKey.split('/').pop().replace(/_captures_points\.geojson$/i,'');
+  const batchId='b'+(nextBatchId++);
+  const newCaps=(geo.features||[]).filter(f=>f&&f.geometry&&Array.isArray(f.geometry.coordinates)).map(f=>{
+    const p=f.properties||{}, co=f.geometry.coordinates;
+    const fov=(f.fov_polygon&&f.fov_polygon.coordinates&&f.fov_polygon.coordinates[0])?f.fov_polygon.coordinates[0].map(c=>[c[1],c[0]]):null;
+    return capFromProps(Object.assign({},p,{project:pname}),co,{uid:batchId+'::'+p.id,batchId,sourceZip:srcFileName,fovPoly:fov,imgUrl:null});
+  });
+  const imgFiles=Object.keys(zip.files).filter(k=>/\.(jpe?g|png|webp)$/i.test(k)&&!zip.files[k].dir);
+  let loaded=0;
+  for(const k of imgFiles){
+    const fname=k.split('/').pop(), key=batchId+'::'+fname, ext=fname.split('.').pop().toLowerCase();
+    const mime=ext==='png'?'image/png':ext==='webp'?'image/webp':'image/jpeg';
+    imgBlobs[key]=URL.createObjectURL(new Blob([await zip.files[k].async('arraybuffer')],{type:mime}));
+    loaded++;
+    if(loaded%5===0||loaded===imgFiles.length) setProgress(Math.min(98,(idx+loaded/Math.max(imgFiles.length,1))*95/total),`${srcFileName}: photo ${loaded}/${imgFiles.length}`);
+  }
+  newCaps.forEach(c=>{ const key=c.batchId+'::'+c.imgName; if(c.imgName&&imgBlobs[key]) c.imgUrl=imgBlobs[key]; });
+  // re-attach review edits from this browser's last session, if the same points come back
+  const saved=pendingEdits(); let restored=0;
+  if(saved) newCaps.forEach(c=>{ const s=saved.get(c.id+'@@'+c.project); if(s){ applySaved(c,s); restored++; } });
+  batches.push({id:batchId,name:pname,fileName:srcFileName,count:newCaps.length,imgCount:imgFiles.length,app:/flood/i.test(app)?'FloodView':(/crop/i.test(app)?'CropView':app||'?')});
+  captures=captures.concat(newCaps);
+  colorFor(pname);
+  if(restored){ showToast(`Re-applied your saved review edits to ${restored} point(s) of ${pname}`,'ok',4200); document.getElementById('restore-banner').style.display='none'; }
+}
+
+// ═══ MAP-TAB UI ═══
+function updateUI(){
+  const has=captures.length>0;
+  document.getElementById('empty').style.display=has?'none':'flex';
+  document.getElementById('reset-btn').style.display=has?'flex':'none';
+  document.getElementById('export-box').style.display=has?'block':'none';
+  renderBatchList(); renderClassFilter(); updateStats(); buildThumbs(); updateReviewBadge();
+}
+function renderBatchList(){
+  const wrap=document.getElementById('batch-list');
+  if(!batches.length){ wrap.innerHTML='Nothing loaded yet.'; return; }
+  wrap.innerHTML=batches.map(b=>`
+    <div class="batch-card" style="border-left-color:${colorFor(b.name)}">
+      <div class="batch-dot" style="background:${colorFor(b.name)}"></div>
+      <div style="flex:1;min-width:0"><div class="batch-name" title="${esc(b.fileName)}">${esc(b.name)}</div>
+      <div class="batch-meta">${b.app} · ${b.count} points · ${b.imgCount} photos</div></div>
+      <button class="batch-x" onclick="removeBatch('${b.id}')" title="Remove this survey">×</button>
+    </div>`).join('');
+}
+function removeBatch(id){
+  if(!batches.find(x=>x.id===id)) return;
+  Object.keys(imgBlobs).forEach(k=>{ if(k.startsWith(id+'::')){ try{URL.revokeObjectURL(imgBlobs[k])}catch(e){} delete imgBlobs[k]; } });
+  batches=batches.filter(x=>x.id!==id);
+  captures=captures.filter(c=>c.batchId!==id);
+  rvSelection.forEach(uid=>{ if(uid.startsWith(id+'::')) rvSelection.delete(uid); });
+  if(selectedCapture&&selectedCapture.batchId===id) closeViewer();
+  updateUI(); redraw(); refreshReview(); autosave();
+}
+function renderClassFilter(){
+  const ac=activeCaps();
+  const keys=[...Object.keys(FCLASS),'none'];
+  document.getElementById('cls-filter').innerHTML=keys.map(k=>{
+    const n=ac.filter(c=>clsKey(c)===k).length; if(k==='none'&&!n) return '';
+    const i=k==='none'?UNL:FCLASS[k];
+    return `<span class="cf ${hiddenClasses.has(k)?'off':''}" onclick="toggleClass('${k}')" title="Show / hide"><i style="background:${i.col}"></i>${i.label}<em>${n}</em></span>`;
+  }).join('');
+}
+function toggleClass(k){ if(hiddenClasses.has(k)) hiddenClasses.delete(k); else hiddenClasses.add(k); renderClassFilter(); redraw(); buildThumbs(); }
+function updateStats(){
+  const ac=activeCaps(), set=(id,v)=>document.getElementById(id).textContent=v;
+  set('st-n',ac.length||'—'); set('st-img',ac.filter(c=>c.imgUrl).length||'—');
+  set('st-fl',ac.filter(c=>c.cls==='flooded').length||(ac.length?0:'—'));
+  set('st-wl',ac.filter(c=>c.cls==='waterlogged').length||(ac.length?0:'—'));
+  set('st-dr',ac.filter(c=>c.cls==='dry').length||(ac.length?0:'—'));
+  set('st-edge',ac.filter(c=>c.edge).length||(ac.length?0:'—'));
+  const deps=ac.map(depthCmOf).filter(v=>v!==null);
+  set('st-depth',deps.length?'~'+Math.max(...deps)+' cm':'—');
+  const ts=ac.map(c=>Date.parse(c.ts)).filter(v=>!isNaN(v));
+  if(ts.length){
+    const a=new Date(Math.min(...ts)), b=new Date(Math.max(...ts)), h=(b-a)/3600000;
+    set('st-span',(a.toDateString()===b.toDateString()?a.toLocaleDateString([], {day:'numeric',month:'short'}):a.toLocaleDateString([], {day:'numeric',month:'short'})+' – '+b.toLocaleDateString([], {day:'numeric',month:'short'}))+' · '+(h<1?Math.round(h*60)+' min':h.toFixed(1)+' h'));
+  } else set('st-span','—');
+}
+function buildThumbs(){
+  const row=document.getElementById('thumb-row'); row.innerHTML='';
+  const imgs=visibleCaps().filter(c=>c.imgUrl);
+  document.getElementById('no-imgs').style.display=imgs.length?'none':'block';
+  document.getElementById('thumb-strip').style.display=imgs.length?'block':'none';
+  imgs.forEach(c=>{
+    const img=document.createElement('img');
+    img.className='thumb'; img.src=c.imgUrl; img.title=clsInfo(c.cls).label+' · '+fmtTime(c.ts); img.loading='lazy';
+    img.style.borderColor=clsInfo(c.cls).col;
+    img.onclick=()=>openLightboxFor(c,imgs,'map');
+    row.appendChild(img);
+  });
+}
+function gridHTML(c){
+  const f=(k,v,col)=>`<div class="pf"><div class="pk">${k}</div><div class="pv" ${col?`style="color:${col}"`:''}>${v}</div></div>`;
+  return f('Depth',esc(depthText(c)))+f('Flow',c.flow&&FLOW[c.flow]?FLOW[c.flow].label:'—',c.flow==='fast'?'#f87171':'')+
+    f('Trend',c.trend&&TREND[c.trend]?TREND[c.trend].label:'—')+f('Time',esc(fmtTime(c.ts)))+
+    f('Look',Math.round(c.azimuth)+'° · tilt '+Math.round(c.tilt)+'°')+f('Aimed at',c.aim&&c.aim.dist!=null?c.aim.dist.toFixed(1)+' m ahead':'—')+
+    (landText(c)?`<div class="pf" style="grid-column:1/-1"><div class="pk">What's flooded</div><div class="pv">${esc(landText(c))}</div></div>`:'')+
+    `<div class="pf" style="grid-column:1/-1"><div class="pk">Survey · position</div><div class="pv" style="font-size:.66rem"><span style="color:${colorFor(c.project)}">${esc(c.project)}</span> · ${(+c.lat).toFixed(6)}, ${(+c.lon).toFixed(6)} ±${(+c.accuracy||0).toFixed(0)} m</div></div>`;
+}
+function openViewer(c){
+  selectedCapture=c;
+  document.getElementById('viewer-sec').style.display='block';
+  const img=document.getElementById('viewer-img');
+  img.src=c.imgUrl||''; img.style.visibility=c.imgUrl?'visible':'hidden';
+  document.getElementById('viewer-top').innerHTML=clsPill(c)+(c.edge?'<span class="edge-pill">〰 EDGE</span>':'')+(isChanged(c)?'<span class="chg-pill">edited</span>':'');
+  document.getElementById('viewer-grid').innerHTML=gridHTML(c);
+  document.getElementById('viewer-note').innerHTML=c.note?'📝 '+esc(c.note):'';
+  redraw();
+}
+function closeViewer(){ document.getElementById('viewer-sec').style.display='none'; selectedCapture=null; redraw(); }
+
+// ═══ MAP ═══
+function initMap(fit){
+  if(!mapReady){
+    theMap=L.map('map',{zoomControl:true}).setView([20.5,78.9],5);
+    const voyager=L.tileLayer(CARTO_URL,{attribution:CARTO_ATTR,maxZoom:20});
+    const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:20,maxNativeZoom:19});
+    const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Esri, Maxar, Earthstar Geographics',maxZoom:20,maxNativeZoom:18});
+    voyager.addTo(theMap);
+    L.control.layers({'🗺️ Voyager':voyager,'🗺️ OpenStreetMap':osm,'🛰️ Satellite':sat},null,{position:'topleft',collapsed:true}).addTo(theMap);
+    theMap.on('baselayerchange',e=>document.getElementById('map-wrap').classList.toggle('sat-on',e.layer===sat));
+    gFP=L.layerGroup().addTo(theMap); gCone=L.layerGroup().addTo(theMap); gPath=L.layerGroup().addTo(theMap);
+    gArrow=L.layerGroup().addTo(theMap); gAim=L.layerGroup().addTo(theMap); gEdge=L.layerGroup().addTo(theMap); gPts=L.layerGroup().addTo(theMap);
+    theMap.on('zoomend',()=>redraw());
+    mapReady=true;
+  }
+  if(fit){
+    const pts=activeCaps().map(c=>[c.lat,c.lon]);
+    if(pts.length) theMap.fitBounds(pts,{padding:[50,50],maxZoom:18});
+  }
+}
+function effTime(c){ const t=Date.parse(c.ts); return isNaN(t)?null:t; }
+function colorMode(){ return document.getElementById('sel-col').value; }
+function contRange(list,fn){ const v=list.map(fn).filter(x=>x!==null&&isFinite(x)); return v.length?{mn:Math.min(...v),mx:Math.max(...v)}:null; }
+const ramp=t=>`hsl(${240-240*t},80%,55%)`;
+const DEPTH_STOPS=['#e0f2fe','#7dd3fc','#38bdf8','#2563eb','#1e3a8a','#172554'];
+function depthRamp(t){ // light → dark blue
+  const n=DEPTH_STOPS.length-1, i=Math.min(n-1,Math.floor(t*n)), f=t*n-i;
+  const h=x=>[1,3,5].map(k=>parseInt(x.substr(k,2),16));
+  const a=h(DEPTH_STOPS[i]), b=h(DEPTH_STOPS[i+1]);
+  return 'rgb('+a.map((v,k)=>Math.round(v+(b[k]-v)*f)).join(',')+')';
+}
+let _rng=null;
+function getColor(c){
+  const m=colorMode();
+  if(m==='class') return clsInfo(c.cls).col;
+  if(m==='batch') return colorFor(c.project);
+  if(m==='flow') return FLOW[c.flow]?FLOW[c.flow].col:UNL.col;
+  if(m==='trend') return TREND[c.trend]?TREND[c.trend].col:UNL.col;
+  const v=m==='depth'?depthCmOf(c):m==='time'?effTime(c):m==='azimuth'?c.azimuth:c.tilt;
+  if(v===null||!_rng) return UNL.col;
+  const t=_rng.mx===_rng.mn?.5:(v-_rng.mn)/(_rng.mx-_rng.mn);
+  return m==='depth'?depthRamp(t):ramp(t);
+}
+function edgePoint(c){ return c.aim?[c.aim.lat,c.aim.lon]:[c.lat,c.lon]; }
+function edgeSegments(list){
+  const out=[];
+  const byProj={};
+  list.filter(c=>c.edge).forEach(c=>(byProj[c.project]=byProj[c.project]||[]).push(c));
+  Object.entries(byProj).forEach(([proj,arr])=>{
+    arr.sort((a,b)=>(effTime(a)||0)-(effTime(b)||0));
+    let cur=[],prev=null;
+    arr.forEach(c=>{
+      const p=edgePoint(c), t=effTime(c)||0;
+      if(prev&&(geoDist(prev.p[0],prev.p[1],p[0],p[1])>EDGE_GAP_M||t-prev.t>EDGE_GAP_MS)){ out.push({project:proj,pts:cur}); cur=[]; }
+      cur.push(p); prev={p,t};
+    });
+    if(cur.length) out.push({project:proj,pts:cur});
+  });
+  return out;
+}
+function redraw(){
+  if(!mapReady) return;
+  const showFP=document.getElementById('tog-fp').checked, showArr=document.getElementById('tog-arr').checked;
+  const showCone=document.getElementById('tog-cone').checked, showPath=document.getElementById('tog-path').checked;
+  const showAim=document.getElementById('tog-aim').checked, showEdge=document.getElementById('tog-edge').checked;
+  const solo=document.getElementById('tog-solo').checked && !!selectedCapture;
+  [gFP,gArrow,gCone,gPath,gAim,gEdge,gPts].forEach(g=>g.clearLayers());
+  const list=visibleCaps();
+  const m=colorMode();
+  _rng=['depth','time','azimuth','tilt'].includes(m)?contRange(list,c=>m==='depth'?depthCmOf(c):m==='time'?effTime(c):m==='azimuth'?c.azimuth:c.tilt):null;
+  if(showPath){
+    const byProj={}; list.forEach(c=>(byProj[c.project]=byProj[c.project]||[]).push(c));
+    Object.values(byProj).forEach(a=>{ if(a.length>1) L.polyline(a.slice().sort((x,y)=>(effTime(x)||0)-(effTime(y)||0)).map(c=>[c.lat,c.lon]),{color:'#64748b',weight:2,dashArray:'7 5',opacity:.65,interactive:false}).addTo(gPath); });
+  }
+  if(showEdge) edgeSegments(list).forEach(s=>{ if(s.pts.length>1){
+    L.polyline(s.pts,{color:'#000',weight:6,opacity:.25,interactive:false}).addTo(gEdge);
+    L.polyline(s.pts,{color:EDGE_COL,weight:3.5,opacity:.95,dashArray:'8 5',interactive:false}).addTo(gEdge);
+  }});
+  const spreadPos=computeSpread(list);
+  list.forEach(c=>{
+    const col=getColor(c), isSel=selectedCapture&&selectedCapture.uid===c.uid;
+    const drawFP=solo?(isSel&&showFP):showFP, drawCone=solo?isSel:showCone, drawArr=solo?isSel:showArr;
+    if(drawFP&&c.fovPoly) L.polygon(c.fovPoly,{color:col,fillColor:col,fillOpacity:.16,weight:1.4,opacity:.7,interactive:false}).addTo(gFP);
+    if(drawCone){
+      const half=c.hfov/2, pts=[[c.lat,c.lon]];
+      for(let s=0;s<=24;s++) pts.push(destPt(c.lat,c.lon,c.azimuth-half+(c.hfov*s/24),arrowLen*1.5));
+      L.polygon(pts,{color:col,fillColor:col,fillOpacity:.13,weight:1,opacity:.5,dashArray:'4 3',interactive:false}).addTo(gCone);
+    }
+    if(drawArr){
+      const tip=destPt(c.lat,c.lon,c.azimuth,arrowLen);
+      L.polyline([[c.lat,c.lon],tip],{color:col,weight:2.5,opacity:.9,interactive:false}).addTo(gArrow);
+      L.polygon([tip,destPt(tip[0],tip[1],c.azimuth+150,arrowLen*arrowHead),destPt(tip[0],tip[1],c.azimuth-150,arrowLen*arrowHead)],{color:col,fillColor:col,fillOpacity:1,weight:0,interactive:false}).addTo(gArrow);
+    }
+    if(showAim&&c.aim&&(c.aim.dist===null||c.aim.dist>0.5)){
+      L.polyline([[c.lat,c.lon],[c.aim.lat,c.aim.lon]],{color:col,weight:1.6,opacity:.85,dashArray:'2 4',interactive:false}).addTo(gAim);
+      L.circleMarker([c.aim.lat,c.aim.lon],{radius:4,color:c.edge?EDGE_COL:'#fff',weight:c.edge?2.5:1.2,fillColor:col,fillOpacity:1,interactive:false}).addTo(gAim);
+    }
+    const pos=spreadPos[c.uid]||[c.lat,c.lon];
+    if(spreadPos[c.uid]) L.polyline([[c.lat,c.lon],pos],{color:col,weight:1,opacity:.7,interactive:false}).addTo(gPts);
+    const mk=L.circleMarker(pos,{radius:isSel?12:8,color:c.edge?EDGE_COL:'#fff',weight:isSel?3.5:(c.edge?3:2),fillColor:col,fillOpacity:.95}).addTo(gPts);
+    mk.bindPopup(()=>popupHTML(c),{maxWidth:280,minWidth:260});
+    mk.on('click',()=>openViewer(c));
+  });
+  updateColorLegend(list);
+}
+// Fan out points that overlap on screen (within ~14 px) into a ring, with a leader line to the true position.
+function computeSpread(list){
+  const out={},TH=14,groups=[];
+  list.forEach(c=>{
+    const pt=theMap.latLngToLayerPoint([c.lat,c.lon]);
+    let g=groups.find(g=>Math.abs(g.x-pt.x)<TH&&Math.abs(g.y-pt.y)<TH);
+    if(!g){ g={x:pt.x,y:pt.y,items:[]}; groups.push(g); }
+    g.items.push(c);
+  });
+  groups.forEach(g=>{
+    const n=g.items.length; if(n<2) return;
+    const r=Math.max(18,n*20/(2*Math.PI)*1.1);
+    g.items.forEach((c,k)=>{ const a=2*Math.PI*k/n-Math.PI/2; const ll=theMap.layerPointToLatLng(L.point(g.x+r*Math.cos(a),g.y+r*Math.sin(a))); out[c.uid]=[ll.lat,ll.lng]; });
+  });
+  return out;
+}
+let colorLegendEl=null;
+function niceTicks(mn,mx,count,intOnly){
+  const span=mx-mn; if(span<=0) return [mn];
+  let step=Math.pow(10,Math.floor(Math.log10(span/count)));
+  const err=(span/count)/step;
+  if(err>=7.5) step*=10; else if(err>=3.5) step*=5; else if(err>=1.5) step*=2;
+  if(intOnly) step=Math.max(1,Math.round(step));
+  const out=[]; for(let v=Math.ceil(mn/step)*step; v<=mx+step*1e-9; v+=step) out.push(+v.toFixed(10));
+  return out;
+}
+function updateColorLegend(list){
+  if(!colorLegendEl){
+    colorLegendEl=L.DomUtil.create('div','',theMap.getContainer()); colorLegendEl.id='col-legend';
+    L.DomEvent.disableClickPropagation(colorLegendEl); L.DomEvent.disableScrollPropagation(colorLegendEl);
+    theMap.on('resize',()=>updateColorLegend(visibleCaps()));
+  }
+  const el=colorLegendEl;
+  if(!list.length){ el.style.display='none'; return; } el.style.display='flex';
+  const m=colorMode();
+  const title={class:'Flood class',depth:'Water depth',flow:'Flow',trend:'Level trend',time:'Capture time',batch:'Survey',azimuth:'Look direction',tilt:'Tilt'}[m];
+  const chips=items=>`<div class="cl-chips">`+items.filter(x=>x.n).map(x=>`<span class="cl-chip"><i style="background:${x.col}"></i>${esc(x.label)}<em>${x.n}</em></span>`).join('')+`</div>`;
+  let body='';
+  if(m==='class') body=chips([...Object.entries(FCLASS).map(([k,v])=>({label:v.label,col:v.col,n:list.filter(c=>c.cls===k).length})),{label:'Unlabelled',col:UNL.col,n:list.filter(c=>!c.cls).length}]);
+  else if(m==='batch') body=chips([...new Set(list.map(c=>c.project))].map(p=>({label:p,col:colorFor(p),n:list.filter(c=>c.project===p).length})));
+  else if(m==='flow') body=chips([...Object.entries(FLOW).map(([k,v])=>({label:v.label,col:v.col,n:list.filter(c=>c.flow===k).length})),{label:'Not recorded',col:UNL.col,n:list.filter(c=>!FLOW[c.flow]).length}]);
+  else if(m==='trend') body=chips([...Object.entries(TREND).map(([k,v])=>({label:v.label,col:v.col,n:list.filter(c=>c.trend===k).length})),{label:'Not recorded',col:UNL.col,n:list.filter(c=>!TREND[c.trend]).length}]);
+  else if(!_rng) body=`<div class="cl-chips"><span class="cl-chip"><i style="background:${UNL.col}"></i>No values recorded</span></div>`;
+  else{
+    const {mn,mx}=_rng;
+    const prevScale=el.querySelector('.cl-scale');
+    const barW=Math.max(120,prevScale&&prevScale.clientWidth?prevScale.clientWidth:(el.clientWidth||600)-220);
+    const fmt=v=>m==='depth'?Math.round(v)+' cm':m==='time'?timeLabel(v,mx-mn):Math.round(v)+'°';
+    const minGap=((m==='time'?70:48)/barW)*100;
+    let ticks=[];
+    if(mx===mn) ticks=[{v:mn,p:50}];
+    else{
+      ticks.push({v:mn,p:0,end:true});
+      const target=Math.max(3,Math.min(10,Math.floor(barW/(m==='time'?110:60))));
+      const vals=m==='time'?Array.from({length:target-1},(_,i)=>mn+(mx-mn)*(i+1)/target):niceTicks(mn,mx,target,true);
+      vals.forEach(v=>{ const p=(v-mn)/(mx-mn)*100; if(p>minGap&&p<100-minGap) ticks.push({v,p}); });
+      ticks.push({v:mx,p:100,end:true});
+    }
+    const stops=[]; for(let t=0;t<=1.0001;t+=.1) stops.push(`${m==='depth'?depthRamp(t):ramp(t)} ${(t*100).toFixed(0)}%`);
+    const tk=ticks.map(t=>{ const al=t.p===0?'translateX(0)':t.p===100?'translateX(-100%)':'translateX(-50%)';
+      return `<span class="cl-tick${t.end?' end':''}${t.p===0?' l':t.p===100?' r':''}" style="left:${t.p}%;transform:${al}"><b></b>${fmt(t.v)}</span>`; }).join('');
+    const none=list.filter(c=>getColor(c)===UNL.col).length;
+    body=`<div class="cl-scale"><div class="cl-bar" style="background:linear-gradient(90deg,${stops.join(',')})"></div><div class="cl-ticks">${tk}</div></div>`+
+      (none?`<div class="cl-chips" style="flex:0 0 auto"><span class="cl-chip"><i style="background:${UNL.col}"></i>none<em>${none}</em></span></div>`:'');
+  }
+  const extra=`<div class="cl-extra"><span><i style="width:14px;height:0;border-top:3px dashed ${EDGE_COL};display:inline-block"></i>water edge</span><span><i style="width:8px;height:8px;border-radius:50%;background:#fff;border:1px solid #64748b;display:inline-block"></i>crosshair point</span></div>`;
+  el.innerHTML=`<div class="cl-title">${title}<small>${list.length} pts</small></div>${body}${extra}`;
+}
+function timeLabel(v,span){
+  const d=new Date(v);
+  if(span<36*3600000) return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  return d.toLocaleDateString([], {day:'numeric',month:'short'})+(span<10*86400000?' '+d.toLocaleTimeString([], {hour:'2-digit'}):'');
+}
+function popupHTML(c){
+  const im=c.imgUrl?`<div class="pop-img-wrap" onclick="openLightboxFor(findCap(${jsq(c.uid)}),visibleCaps().filter(x=>x.imgUrl),'map')"><img src="${c.imgUrl}" alt=""/></div>`:`<div class="pop-img-wrap" style="height:60px"><span class="no-img">No photo loaded</span></div>`;
+  return `<div style="width:260px">${im}<div class="pop-body"><div class="pop-top">${clsPill(c)}${c.edge?'<span class="edge-pill">〰 EDGE</span>':''}${isChanged(c)?'<span class="chg-pill">edited</span>':''}</div>
+    <div class="pop-grid">${gridHTML(c)}</div>${c.note?`<div style="margin-top:6px;font-size:.66rem;color:var(--txt2)">📝 ${esc(c.note)}</div>`:''}</div></div>`;
+}
+const findCap=uid=>captures.find(c=>c.uid===uid);
+
+// ═══ EXPORTS ═══
+function propsOut(c){
+  const d=DEPTH.find(x=>x.k===c.depth);
+  return {uid:c.uid,id:c.id,project:c.project,source_zip:c.sourceZip||null,timestamp:c.ts||null,imgName:c.imgName||null,
+    flood_class:c.cls||null, water_depth_class:c.depth||null,
+    water_depth_cm: c.depthSource==='measured'&&c.depthCm!==null ? c.depthCm : (d?d.cm:null),
+    water_depth_source: c.depthSource==='measured'&&c.depthCm!==null ? 'measured' : (d?(c.cls==='dry'&&c.depth==='none'?'dry_class':'body_scale'):null),
+    flow:c.flow||null, level_trend:c.trend||null, flooded_land_cover:c.land||null, water_edge:!!c.edge, note:c.note||null,
+    field_flood_class:c.field?c.field.cls:null, field_water_depth_class:c.field?c.field.depth:null, field_water_edge:c.field?!!c.field.edge:null,
+    review_changed:!!isChanged(c), deleted:!!c.deleted,
+    altitude:c.alt, heading_deg:c.azimuth, tilt_deg_from_nadir:c.tilt, hfov_deg:c.hfov, camera_height_m:c.camH, gps_accuracy_m:c.accuracy,
+    aim_lat:c.aim?c.aim.lat:null, aim_lon:c.aim?c.aim.lon:null, aim_dist_m:c.aim?c.aim.dist:null, aim_uncertainty_m:c.aim?c.aim.unc:null,
+    footprint_width_m:c.fpW||null, footprint_depth_m:c.fpD||null, kc_stage:c.kc};
+}
+function exportPayload(){
+  return {type:'FeatureCollection',schema:'floodview-reviewed-v1',app:'FloodView Explorer',version:APP_VERSION,exported_at:new Date().toISOString(),
+    note:'Deleted points are kept with deleted=true so this file reopens in the Explorer; filter them out in GIS.',
+    projects:[...new Set(captures.map(c=>c.project))].map(p=>({name:p,color:colorFor(p)})),
+    features:captures.map(c=>({type:'Feature',geometry:{type:'Point',coordinates:[c.lon,c.lat]},properties:propsOut(c),
+      ...(c.fovPoly?{fov_polygon:{type:'Polygon',coordinates:[c.fovPoly.map(p=>[p[1],p[0]])]}}:{})}))};
+}
+function outName(suffix){ return (batches.length===1?batches[0].name:(batches.length?'combined_'+batches.length+'surveys':'floodview'))+suffix; }
+function dl(text,name,type){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }
+function downloadPointsJSON(){
+  if(!captures.length){ showToast('Nothing to export'); return; }
+  const d=exportPayload(); dl(JSON.stringify(d,null,2),outName('_reviewed_points.geojson'),'application/geo+json');
+  showToast('Exported '+d.features.length+' points (opens in QGIS too)','ok');
+}
+function downloadEdgeJSON(){
+  const list=activeCaps(), edges=list.filter(c=>c.edge);
+  if(!edges.length){ showToast('No water-edge points'); return; }
+  const segs=edgeSegments(list);
+  const fc={type:'FeatureCollection',app:'FloodView Explorer',version:APP_VERSION,exported_at:new Date().toISOString(),
+    description:'Water-edge points (at the crosshair point, or the observer when there was none) and traced edge lines per survey, after review. A new line starts after a gap of more than '+EDGE_GAP_M+' m or '+EDGE_GAP_MS/60000+' min.',
+    features:[...segs.filter(s=>s.pts.length>1).map((s,i)=>({type:'Feature',geometry:{type:'LineString',coordinates:s.pts.map(p=>[p[1],p[0]])},properties:{project:s.project,segment:i+1,points:s.pts.length}})),
+      ...edges.map(c=>{ const p=edgePoint(c); return {type:'Feature',geometry:{type:'Point',coordinates:[p[1],p[0]]},properties:Object.assign(propsOut(c),{edge_from:c.aim?'crosshair':'observer'})}; })]};
+  dl(JSON.stringify(fc,null,2),outName('_water_edge.geojson'),'application/geo+json');
+  showToast('Exported '+edges.length+' edge points, '+fc.features.filter(f=>f.geometry.type==='LineString').length+' line(s)','ok');
+}
+function downloadCSV(){
+  const list=activeCaps(); if(!list.length){ showToast('Nothing to export'); return; }
+  const cols=['id','project','timestamp','lat','lon','flood_class','water_depth_class','water_depth_cm','water_depth_source','flow','level_trend','flooded_land_cover','water_edge','note','field_flood_class','field_water_depth_class','field_water_edge','review_changed','heading_deg','tilt_deg_from_nadir','camera_height_m','gps_accuracy_m','aim_lat','aim_lon','aim_dist_m','aim_uncertainty_m','imgName','source_zip'];
+  const cell=v=>{ if(v===null||v===undefined) return ''; const s=String(v); return /[",\n;]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const rows=list.map(c=>{ const p=propsOut(c); p.lat=c.lat; p.lon=c.lon; return cols.map(k=>cell(p[k])).join(','); });
+  dl([cols.join(','),...rows].join('\n'),outName('_reviewed.csv'),'text/csv');
+  showToast('Exported '+list.length+' rows','ok');
+}
+
+// ═══ IMPORT a reviewed / points GeoJSON ═══
+function handleReviewDrop(ev){ ev.preventDefault(); ev.currentTarget.classList.remove('over'); const f=ev.dataTransfer.files[0]; if(f) handlePointsJSONFile(f); }
+function handlePointsJSONFile(file){
+  const r=new FileReader();
+  r.onload=e=>{ try{ mergePointsFromJSON(JSON.parse(e.target.result)); }catch(err){ showToast('Not valid GeoJSON: '+err.message); } };
+  r.readAsText(file); document.getElementById('an-file-in').value='';
+}
+function mergePointsFromJSON(data){
+  if(!data||!Array.isArray(data.features)){ showToast('Expected a GeoJSON FeatureCollection'); return; }
+  let updated=0, added=0;
+  data.features.forEach(f=>{
+    if(!f||!f.geometry||f.geometry.type!=='Point') return;
+    const p=f.properties||{}, co=f.geometry.coordinates;
+    const proj=p.project||(data.metadata&&data.metadata.project)||'Imported';
+    // match on capture ID + survey first: the internal uid depends on the order ZIPs were opened in
+    let ex=captures.find(c=>c.id===p.id&&c.project===proj)||(p.uid&&captures.find(c=>c.uid===p.uid&&c.id===p.id));
+    const inc=capFromProps(Object.assign({},p,{project:proj}),co,{});
+    if(ex){
+      ['cls','depth','depthCm','depthSource','flow','trend','land','edge','note','deleted'].forEach(k=>ex[k]=inc[k]);
+      if(p.field_flood_class!==undefined) ex.field=inc.field;
+      updated++;
+    } else if(typeof co[0]==='number'&&typeof co[1]==='number'){
+      const fov=(f.fov_polygon&&f.fov_polygon.coordinates&&f.fov_polygon.coordinates[0])?f.fov_polygon.coordinates[0].map(c=>[c[1],c[0]]):null;
+      captures.push(Object.assign(inc,{uid:p.uid||(proj+'::'+p.id),batchId:null,sourceZip:p.source_zip||'',fovPoly:fov,imgUrl:null}));
+      colorFor(proj); added++;
+    }
+  });
+  showToast(`Imported: ${updated} matched and updated, ${added} added without photos`,'ok',4500);
+  updateUI(); initMap(!!added); redraw(); refreshReview(); autosave();
+}
+
+// ═══ AUTOSAVE (review edits, per browser) ═══
+let autosaveTimer=null;
+function autosave(){
+  clearTimeout(autosaveTimer);
+  autosaveTimer=setTimeout(()=>{ try{ localStorage.setItem('fv_x_session',JSON.stringify(exportPayload())); }catch(e){} },500);
+}
+function pendingEdits(){
+  try{
+    const d=JSON.parse(localStorage.getItem('fv_x_session')||'null'); if(!d||!d.features) return null;
+    const m=new Map(); d.features.forEach(f=>{ const p=f.properties||{}; if(p.review_changed||p.deleted) m.set(p.id+'@@'+p.project,p); }); return m.size?m:null;
+  }catch(e){ return null; }
+}
+function applySaved(c,p){
+  const inc=capFromProps(p,[c.lon,c.lat],{});
+  ['cls','depth','depthCm','depthSource','edge','deleted'].forEach(k=>c[k]=inc[k]);
+}
+function checkRestoreSession(){
+  try{
+    const d=JSON.parse(localStorage.getItem('fv_x_session')||'null');
+    if(!d||!d.features||!d.features.length) return;
+    document.getElementById('restore-banner').style.display='flex';
+    document.getElementById('restore-info').textContent=d.features.length+' points, saved '+new Date(d.exported_at).toLocaleString();
+    window._pendingRestore=d;
+  }catch(e){}
+}
+function doRestore(){ if(window._pendingRestore) mergePointsFromJSON(window._pendingRestore); document.getElementById('restore-banner').style.display='none'; }
+function dismissRestore(){ document.getElementById('restore-banner').style.display='none'; }
+
+// ═══ REVIEW TAB ═══
+function initAnnotMap(){
+  if(annotMap) return;
+  annotMap=L.map('an-map',{zoomControl:true}).setView([20.5,78.9],5);
+  L.tileLayer(CARTO_URL,{attribution:CARTO_ATTR,maxZoom:20}).addTo(annotMap);
+  annotLayer=L.layerGroup().addTo(annotMap);
+  annotMap.on('dragstart zoomstart',()=>{ annotMap._userMoved=true; });
+}
+function reviewList(){
+  const proj=document.getElementById('rv-project').value, cls=document.getElementById('rv-class').value;
+  const changed=document.getElementById('rv-changed').checked, hideDel=document.getElementById('rv-hide-del').checked;
+  return captures.filter(c=>(!hideDel||!c.deleted)&&(proj==='__all__'||c.project===proj)&&(cls==='__all__'||clsKey(c)===cls)&&(!changed||isChanged(c)))
+    .sort((a,b)=>(effTime(a)||0)-(effTime(b)||0));
+}
+function classOptions(sel,withBlank){
+  return (withBlank?`<option value="" ${!sel?'selected':''}>— unlabelled</option>`:'')+Object.entries(FCLASS).map(([k,v])=>`<option value="${k}" ${sel===k?'selected':''}>${v.icon} ${v.label}</option>`).join('');
+}
+function depthOptions(sel){ return `<option value="" ${!sel?'selected':''}>—</option>`+DEPTH.map(d=>`<option value="${d.k}" ${sel===d.k?'selected':''}>${d.label}</option>`).join(''); }
+function refreshReview(){
+  const ps=document.getElementById('rv-project'), projs=[...new Set(captures.map(c=>c.project))], cur=ps.value;
+  ps.innerHTML='<option value="__all__">All surveys</option>'+projs.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('');
+  ps.value=projs.includes(cur)?cur:'__all__';
+  const cs=document.getElementById('rv-class'), cc=cs.value;
+  cs.innerHTML='<option value="__all__">All</option>'+Object.entries(FCLASS).map(([k,v])=>`<option value="${k}">${v.icon} ${v.label}</option>`).join('')+'<option value="none">Unlabelled</option>';
+  cs.value=cc||'__all__';
+  const bs=document.getElementById('rv-bulk-class'); if(bs.options.length<2) bs.innerHTML='<option value="">Set class…</option>'+classOptions(null,false);
+  const list=reviewList();
+  document.getElementById('rv-count').textContent=list.length+' / '+captures.length+' points';
+  document.getElementById('rv-sel-count').textContent=rvSelection.size;
+  const tb=document.getElementById('rv-tbody');
+  if(!list.length) tb.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--txt3);padding:24px">${captures.length?'No points match the filters.':'Open ZIP exports on the Map tab first.'}</td></tr>`;
+  else tb.innerHTML=list.map(c=>{
+    const u=jsq(c.uid), sel=rvSelection.has(c.uid);
+    const th=c.imgUrl?`<img src="${c.imgUrl}" loading="lazy" alt="" style="width:38px;height:29px;object-fit:cover;border-radius:4px;display:block;cursor:zoom-in;border:2px solid ${clsInfo(c.cls).col}"/>`:`<div style="width:38px;height:29px;border-radius:4px;background:var(--surf3);border:2px solid ${clsInfo(c.cls).col}"></div>`;
+    const tags=[c.flow&&FLOW[c.flow]?FLOW[c.flow].label+' flow':'',c.trend&&TREND[c.trend]?TREND[c.trend].label:'',landText(c)].filter(Boolean).join(' · ');
+    return `<tr class="an-row ${sel?'sel':''} ${rvFocused&&rvFocused.uid===c.uid?'focus':''}" style="${c.deleted?'opacity:.45':''}">
+      <td><input type="checkbox" ${sel?'checked':''} onclick="toggleSel(${u},event)"/></td>
+      <td onclick="openLightboxFromRow(${u})">${th}</td>
+      <td onclick="focusPoint(${u})" style="font-size:.68rem;line-height:1.45;cursor:pointer;white-space:nowrap">${esc(fmtTime(c.ts))}<br/><span style="color:${colorFor(c.project)}">${esc(c.project)}</span> ${isChanged(c)?'<span class="chg-pill">edited</span>':''}</td>
+      <td><select class="cell-sel" onchange="setField(${u},'cls',this.value)">${classOptions(c.cls,true)}</select>${c.field&&c.field.cls!==c.cls?`<div style="font-size:.58rem;color:var(--txt3);margin-top:2px">field: ${esc(clsInfo(c.field.cls).label)}</div>`:''}</td>
+      <td><select class="cell-sel" onchange="setField(${u},'depth',this.value)">${depthOptions(c.depth)}</select></td>
+      <td style="text-align:center"><input type="checkbox" ${c.edge?'checked':''} onchange="setField(${u},'edge',this.checked)" title="Water-edge marker" style="accent-color:${EDGE_COL};width:16px;height:16px"/></td>
+      <td style="font-size:.64rem;color:var(--txt3);max-width:200px">${esc(tags)||'—'}${c.note?'<br/>📝 '+esc(c.note):''}</td>
+      <td>${c.deleted?`<button class="mini-btn ok" onclick="setField(${u},'deleted',false)">Restore</button>`:`<button class="mini-btn danger" onclick="setField(${u},'deleted',true)">Delete</button>`}</td>
+    </tr>`;
+  }).join('');
+  drawAnnotMap(list); updateReviewBadge(); updateStats();
+}
+function setField(uid,field,val){
+  const c=findCap(uid); if(!c) return;
+  if(field==='cls') c.cls=FCLASS[val]?val:null;
+  else if(field==='depth'){ c.depth=val||null; c.depthCm=null; c.depthSource=null; }
+  else c[field]=!!val;
+  autosave(); refreshReview(); renderClassFilter(); redraw();
+  if(selectedCapture&&selectedCapture.uid===uid) openViewer(c);
+  if(rvFocused&&rvFocused.uid===uid) renderFocusCard(c);
+}
+function toggleSel(uid,ev){ ev.stopPropagation(); if(rvSelection.has(uid)) rvSelection.delete(uid); else rvSelection.add(uid); refreshReview(); }
+function selectAllFiltered(){ reviewList().forEach(c=>rvSelection.add(c.uid)); refreshReview(); }
+function clearSelection(){ rvSelection.clear(); refreshReview(); }
+function applyBulk(what){
+  if(!rvSelection.size){ showToast('Select points first (tick boxes or Select shown)'); return; }
+  const sel=captures.filter(c=>rvSelection.has(c.uid));
+  if(what==='class'){ const v=document.getElementById('rv-bulk-class').value; if(!v){ showToast('Choose a class to apply'); return; } sel.forEach(c=>c.cls=v); }
+  else if(what==='edge-on') sel.forEach(c=>c.edge=true);
+  else if(what==='edge-off') sel.forEach(c=>c.edge=false);
+  else if(what==='delete'){ sel.forEach(c=>c.deleted=true); rvSelection.clear(); }
+  else if(what==='restore') sel.forEach(c=>c.deleted=false);
+  showToast('Updated '+sel.length+' point(s)','ok'); autosave(); refreshReview(); renderClassFilter(); redraw();
+}
+function focusPoint(uid){
+  const c=findCap(uid); if(!c) return;
+  rvFocused=c;
+  if(annotMap){ annotMap._userMoved=true; annotMap.setView([c.lat,c.lon],Math.max(annotMap.getZoom(),17)); }
+  renderFocusCard(c); refreshReview();
+}
+function renderFocusCard(c){
+  const el=document.getElementById('an-focus');
+  if(!c){ el.style.display='none'; return; }
+  el.style.display='block';
+  el.innerHTML=`<div style="background:var(--g-card);border:1px solid var(--g-edge);border-radius:var(--r);overflow:hidden">
+    ${c.imgUrl?`<img src="${c.imgUrl}" alt="" style="width:100%;height:160px;object-fit:cover;display:block;cursor:zoom-in" onclick="openLightboxFromRow(${jsq(c.uid)})"/>`:''}
+    <div style="padding:10px 12px"><div class="pop-top">${clsPill(c)}${c.edge?'<span class="edge-pill">〰 EDGE</span>':''}${isChanged(c)?'<span class="chg-pill">edited</span>':''}</div>
+    <div class="pop-grid">${gridHTML(c)}</div>${c.note?`<div style="margin-top:6px;font-size:.66rem;color:var(--txt2)">📝 ${esc(c.note)}</div>`:''}</div></div>`;
+}
+function drawAnnotMap(list){
+  if(!annotMap) return;
+  annotLayer.clearLayers();
+  const bounds=[];
+  list.forEach(c=>{
+    bounds.push([c.lat,c.lon]);
+    const sel=rvSelection.has(c.uid), foc=rvFocused&&rvFocused.uid===c.uid;
+    if(c.aim) L.polyline([[c.lat,c.lon],[c.aim.lat,c.aim.lon]],{color:clsInfo(c.cls).col,weight:1.4,dashArray:'2 4',interactive:false}).addTo(annotLayer);
+    const mk=L.circleMarker([c.lat,c.lon],{radius:foc?11:(sel?9:7),color:sel||foc?'#fff':(c.edge?EDGE_COL:'#0b0f1a'),weight:sel||foc?3:(c.edge?2.5:1.5),fillColor:clsInfo(c.cls).col,fillOpacity:c.deleted?.35:.92}).addTo(annotLayer);
+    mk.on('click',()=>{ if(rvSelection.has(c.uid)) rvSelection.delete(c.uid); else rvSelection.add(c.uid); focusPoint(c.uid); });
+  });
+  if(bounds.length&&!annotMap._userMoved) annotMap.fitBounds(bounds,{padding:[30,30],maxZoom:18});
+}
+
+// ═══ LIGHTBOX (CropView Data Explorer v2.2: nav, details, mini-map) ═══
+function openLightboxFor(c,list,context){
+  if(!c||!c.imgUrl) return;
+  lbList=(list&&list.length)?list:[c];
+  lbIndex=lbList.findIndex(x=>x.uid===c.uid); if(lbIndex<0){ lbList=[c]; lbIndex=0; }
+  lbContext=context||'map';
+  if(theMap) theMap.closePopup();
+  const lb=document.getElementById('lightbox'); lb.style.display='flex';
+  requestAnimationFrame(()=>lb.classList.add('show'));
+  renderLightbox();
+}
+function openLightboxFromRow(uid){ const c=findCap(uid); if(!c) return; rvFocused=c; renderFocusCard(c); if(c.imgUrl) openLightboxFor(c,reviewList().filter(x=>x.imgUrl),'review'); }
+function renderLightbox(){
+  const c=lbList[lbIndex]; if(!c) return;
+  lbZoomReset(false);
+  document.getElementById('lb-img').src=c.imgUrl||'';
+  document.querySelectorAll('.lb-arrow').forEach(a=>a.disabled=lbList.length<=1);
+  updateLBMini(c);
+  const u=jsq(c.uid);
+  const edit=lbContext==='review'?`
+    <div class="lb-row"><div class="lb-lbl">Review</div>
+      <div style="display:grid;gap:6px;margin-top:4px">
+        <select class="cell-sel" onchange="setField(${u},'cls',this.value);renderLightbox()">${classOptions(c.cls,true)}</select>
+        <select class="cell-sel" onchange="setField(${u},'depth',this.value);renderLightbox()">${depthOptions(c.depth)}</select>
+        <label style="display:flex;align-items:center;gap:8px;font-size:.72rem"><input type="checkbox" ${c.edge?'checked':''} onchange="setField(${u},'edge',this.checked);renderLightbox()" style="accent-color:${EDGE_COL}"/> Water-edge marker</label>
+        ${c.deleted?`<button class="mini-btn ok" onclick="setField(${u},'deleted',false);renderLightbox()">Restore point</button>`:`<button class="mini-btn danger" onclick="setField(${u},'deleted',true);renderLightbox()">Delete point</button>`}
+      </div></div>`:'';
+  document.getElementById('lb-details-content').innerHTML=`
+    <div class="lb-row"><div class="pop-top" style="margin:0">${clsPill(c)}${c.edge?'<span class="edge-pill">〰 EDGE</span>':''}${isChanged(c)?'<span class="chg-pill">edited</span>':''}</div>
+      ${c.field&&c.field.cls!==c.cls?`<div style="font-size:.62rem;color:#94a3b8;margin-top:5px">Field label: ${esc(clsInfo(c.field.cls).label)}</div>`:''}</div>
+    <div class="lb-row lb-2"><div><div class="lb-lbl">Depth</div><div class="lb-val">${esc(depthText(c))}</div></div><div><div class="lb-lbl">Flow</div><div class="lb-val" ${c.flow==='fast'?'style="color:#f87171"':''}>${c.flow&&FLOW[c.flow]?FLOW[c.flow].label:'—'}</div></div></div>
+    <div class="lb-row lb-2"><div><div class="lb-lbl">Level trend</div><div class="lb-val">${c.trend&&TREND[c.trend]?TREND[c.trend].label:'—'}</div></div><div><div class="lb-lbl">Time</div><div class="lb-val" style="font-size:.74rem">${esc(fmtTime(c.ts))}</div></div></div>
+    ${landText(c)?`<div class="lb-row"><div class="lb-lbl">What's flooded</div><div class="lb-val" style="font-size:.76rem">${esc(landText(c))}</div></div>`:''}
+    ${c.note?`<div class="lb-row"><div class="lb-lbl">Note</div><div class="lb-val" style="font-size:.76rem;color:#e8f0fe">${esc(c.note)}</div></div>`:''}
+    <div class="lb-row lb-2"><div><div class="lb-lbl">Look direction</div><div class="lb-val" style="color:#fbbf24">${Math.round(c.azimuth)}°</div></div><div><div class="lb-lbl">Tilt</div><div class="lb-val">${Math.round(c.tilt)}°</div></div></div>
+    <div class="lb-row lb-2"><div><div class="lb-lbl">Aimed at</div><div class="lb-val">${c.aim&&c.aim.dist!=null?c.aim.dist.toFixed(1)+' m'+(c.aim.unc!=null?' ±'+c.aim.unc.toFixed(1):''):'—'}</div></div><div><div class="lb-lbl">GPS</div><div class="lb-val">±${(+c.accuracy||0).toFixed(1)} m</div></div></div>
+    <div class="lb-row"><div class="lb-lbl">Position</div><div class="lb-val" style="font-size:.74rem">${(+c.lat).toFixed(6)}, ${(+c.lon).toFixed(6)}</div></div>
+    <div class="lb-row"><div class="lb-lbl">Survey</div><div class="lb-val" style="color:${colorFor(c.project)};font-size:.76rem">${esc(c.project)}</div></div>
+    ${edit}
+    <div style="margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);font-size:.58rem;color:#64748b;line-height:1.6"><strong style="color:#94a3b8">FloodView</strong> · ${esc(c.id)}<br/>Somdeep Kundu · RuDRA, C-TARA · IIT Bombay</div>`;
+  if(lbContext==='map'){ selectedCapture=c; openViewer(c); if(theMap) theMap.setView([c.lat,c.lon],Math.max(theMap.getZoom(),17)); }
+  else{ rvFocused=c; renderFocusCard(c); }
+}
+function initLBMini(){
+  if(lbMiniMap) return;
+  lbMiniMap=L.map('lb-mini',{zoomControl:false,attributionControl:false,scrollWheelZoom:false});
+  L.tileLayer(CARTO_URL,{maxZoom:20}).addTo(lbMiniMap);
+  lbMiniLayer=L.layerGroup().addTo(lbMiniMap);
+}
+function updateLBMini(c){
+  initLBMini(); lbMiniLayer.clearLayers(); lbMiniMap.setView([c.lat,c.lon],16);
+  captures.filter(x=>!x.deleted&&Math.abs(x.lat-c.lat)<0.02&&Math.abs(x.lon-c.lon)<0.02).forEach(x=>{
+    const cur=x.uid===c.uid;
+    if(cur&&x.aim) L.polyline([[x.lat,x.lon],[x.aim.lat,x.aim.lon]],{color:'#fff',weight:2,dashArray:'2 3'}).addTo(lbMiniLayer);
+    L.circleMarker([x.lat,x.lon],{radius:cur?8:5,color:cur?'#fff':'#0b0f1a',weight:cur?3:1,fillColor:clsInfo(x.cls).col,fillOpacity:cur?1:.7}).addTo(lbMiniLayer);
+  });
+  setTimeout(()=>lbMiniMap&&lbMiniMap.invalidateSize(),80);
+}
+function navLightbox(dir){ if(lbList.length<=1) return; lbIndex=(lbIndex+dir+lbList.length)%lbList.length; renderLightbox(); }
+function closeLightbox(){
+  const lb=document.getElementById('lightbox'); lb.classList.remove('show');
+  setTimeout(()=>{ lb.style.display='none'; document.getElementById('lb-img').src=''; lbZoomReset(false); },260);
+  if(activeTab==='review') refreshReview();
+}
+document.addEventListener('keydown',e=>{
+  const lb=document.getElementById('lightbox');
+  if(!lb.classList.contains('show')) return;
+  if(e.target&&e.target.matches&&e.target.matches('input,textarea,select')&&e.key!=='Escape') return;
+  if(['ArrowLeft','ArrowRight',' ','Escape','i','I','d','D','+','=','-','_','0'].includes(e.key)) e.preventDefault();
+  switch(e.key){
+    case 'Escape': closeLightbox(); break;
+    case 'ArrowLeft': navLightbox(-1); break;
+    case 'ArrowRight': case ' ': navLightbox(1); break;
+    case '+': case '=': lbZoomBy(1.6); break;
+    case '-': case '_': lbZoomBy(1/1.6); break;
+    case '0': lbZoomReset(true); break;
+    case 'i': case 'I': case 'd': case 'D': lbDetailsVisible=!lbDetailsVisible; document.getElementById('lb-details').style.display=lbDetailsVisible?'block':'none'; break;
+  }
+});
+
+// ═══ LIGHTBOX ZOOM (CropView Data Explorer v2.2, unchanged) ═══
+const LB_ZMIN = 1, LB_ZMAX = 6;
+let lbZ = {s:1, x:0, y:0};
+const lbPtrs = new Map();
+let lbGest = null;
+let lbLastTap = {t:0, x:0, y:0};
+let lbWheelT = null;
+function lbImg(){ return document.getElementById('lb-img'); }
+function lbWrap(){ return document.getElementById('lb-img-wrap'); }
+function lbCentre(){ const r=lbWrap().getBoundingClientRect(); return {x:r.left+r.width/2, y:r.top+r.height/2}; }
+function lbClamp(){
+  const img=lbImg();
+  lbZ.s = Math.min(LB_ZMAX, Math.max(LB_ZMIN, lbZ.s));
+  if(lbZ.s <= 1.001){ lbZ.s=1; lbZ.x=0; lbZ.y=0; return; }
+  const mx = img.offsetWidth*(lbZ.s-1)/2, my = img.offsetHeight*(lbZ.s-1)/2;
+  lbZ.x = Math.min(mx, Math.max(-mx, lbZ.x));
+  lbZ.y = Math.min(my, Math.max(-my, lbZ.y));
+}
+function lbApply(live){
+  const img=lbImg(), wrap=lbWrap(); if(!img || !wrap) return;
+  lbClamp();
+  img.classList.toggle('lb-live', !!live);
+  const zoomed = lbZ.s > 1;
+  img.style.transform = zoomed ? `translate(${lbZ.x}px,${lbZ.y}px) scale(${lbZ.s})` : '';
+  wrap.classList.toggle('zoomed', zoomed);
+  const lvl=document.getElementById('lb-zoom-lvl'); if(lvl) lvl.textContent = (Math.round(lbZ.s*10)/10)+'×';
+  const zo=document.getElementById('lb-zoom-out'), zi=document.getElementById('lb-zoom-in');
+  if(zo) zo.disabled = lbZ.s <= LB_ZMIN;
+  if(zi) zi.disabled = lbZ.s >= LB_ZMAX;
+}
+function lbZoomTo(s2, cx, cy, live){
+  const img=lbImg(); if(!img || !img.getAttribute('src')) return;
+  s2 = Math.min(LB_ZMAX, Math.max(LB_ZMIN, s2));
+  const c0 = lbCentre();
+  if(cx == null){ cx=c0.x; cy=c0.y; }
+  const px=(cx-c0.x-lbZ.x)/lbZ.s, py=(cy-c0.y-lbZ.y)/lbZ.s;
+  lbZ.x = cx-c0.x-s2*px; lbZ.y = cy-c0.y-s2*py; lbZ.s = s2;
+  lbApply(live);
+}
+function lbZoomBy(f, cx, cy){ lbZoomTo(lbZ.s*f, cx, cy, false); }
+function lbZoomReset(animate){
+  lbZ = {s:1, x:0, y:0}; lbGest = null; lbPtrs.clear();
+  const img=lbImg(), wrap=lbWrap(); if(!img || !wrap) return;
+  wrap.classList.remove('dragging');
+  lbApply(!animate);
+  if(!animate) requestAnimationFrame(()=>img.classList.remove('lb-live'));
+}
+(function initLbZoom(){
+  const wrap = lbWrap(); if(!wrap) return;
+  const dist = (a,b)=>Math.hypot(a.x-b.x, a.y-b.y);
+  const mid  = (a,b)=>({x:(a.x+b.x)/2, y:(a.y+b.y)/2});
+  function startGesture(multi){
+    const pts=[...lbPtrs.values()];
+    if(pts.length >= 2) lbGest = {type:'pinch', d0:dist(pts[0],pts[1])||1, s0:lbZ.s, m0:mid(pts[0],pts[1]), x0:lbZ.x, y0:lbZ.y, multi:true};
+    else if(pts.length === 1) lbGest = {type:'pan', p0:{...pts[0]}, x0:lbZ.x, y0:lbZ.y, t0:performance.now(), moved:false, multi:!!multi};
+    else lbGest = null;
+  }
+  wrap.addEventListener('pointerdown', e=>{
+    if(e.pointerType==='mouse' && e.button!==0) return;
+    if(!lbImg().getAttribute('src')) return;
+    if(lbPtrs.size >= 2) return;
+    try{ wrap.setPointerCapture(e.pointerId); }catch(_){}
+    lbPtrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    startGesture(false);
+    e.preventDefault();
+  });
+  wrap.addEventListener('pointermove', e=>{
+    if(!lbPtrs.has(e.pointerId)) return;
+    lbPtrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    if(!lbGest) return;
+    const pts=[...lbPtrs.values()];
+    if(lbGest.type==='pinch' && pts.length>=2){
+      const g=lbGest, c0=lbCentre(), m=mid(pts[0],pts[1]);
+      const px=(g.m0.x-c0.x-g.x0)/g.s0, py=(g.m0.y-c0.y-g.y0)/g.s0;
+      const s=Math.min(LB_ZMAX, Math.max(LB_ZMIN, g.s0*dist(pts[0],pts[1])/g.d0));
+      lbZ.s=s; lbZ.x=m.x-c0.x-s*px; lbZ.y=m.y-c0.y-s*py;
+      lbApply(true);
+    } else if(lbGest.type==='pan' && pts.length===1){
+      const dx=pts[0].x-lbGest.p0.x, dy=pts[0].y-lbGest.p0.y;
+      if(Math.hypot(dx,dy) > 6) lbGest.moved = true;
+      if(lbZ.s > 1){ lbZ.x=lbGest.x0+dx; lbZ.y=lbGest.y0+dy; lbApply(true); wrap.classList.add('dragging'); }
+    }
+  });
+  function endPtr(e){
+    if(!lbPtrs.has(e.pointerId)) return;
+    const g=lbGest, p=lbPtrs.get(e.pointerId);
+    lbPtrs.delete(e.pointerId);
+    wrap.classList.remove('dragging');
+    if(lbPtrs.size === 1){ startGesture(true); return; }
+    lbGest = null;
+    lbImg().classList.remove('lb-live');
+    if(!g || e.type==='pointercancel' || g.type!=='pan' || g.multi) return;
+    const dx=p.x-g.p0.x, dy=p.y-g.p0.y, dt=performance.now()-g.t0;
+    if(!g.moved && dt < 350){
+      const now=performance.now();
+      if(now-lbLastTap.t < 320 && Math.hypot(p.x-lbLastTap.x, p.y-lbLastTap.y) < 30){
+        lbLastTap.t = 0;
+        if(lbZ.s > 1.05) lbZoomReset(true); else lbZoomTo(2.5, p.x, p.y, false);
+      } else lbLastTap = {t:now, x:p.x, y:p.y};
+    } else if(e.pointerType!=='mouse' && lbZ.s<=1 && Math.abs(dx)>50 && Math.abs(dx)>1.5*Math.abs(dy) && dt<800){
+      navLightbox(dx < 0 ? 1 : -1);
+    }
+  }
+  wrap.addEventListener('pointerup', endPtr);
+  wrap.addEventListener('pointercancel', endPtr);
+  wrap.addEventListener('wheel', e=>{
+    if(!lbImg().getAttribute('src')) return;
+    e.preventDefault();
+    const k = e.deltaMode===1 ? 16 : (e.deltaMode===2 ? 400 : 1);
+    const f = Math.exp(-e.deltaY*k*(e.ctrlKey ? 0.01 : 0.0018));
+    lbZoomTo(lbZ.s*f, e.clientX, e.clientY, true);
+    clearTimeout(lbWheelT); lbWheelT = setTimeout(()=>lbImg().classList.remove('lb-live'), 150);
+  }, {passive:false});
+  window.addEventListener('resize', ()=>{ if(lbZ.s > 1) lbApply(true); });
+})();
+
+// ═══ BOOT ═══
+(function(){ try{ const m=navigator.deviceMemory; if(m&&m<=2) document.documentElement.classList.add('g-lite');
+  if(localStorage.getItem('fv_x_theme')==='light') toggleTheme(); }catch(e){} })();
+initCollapsibles();
+renderClassFilter();
+initMap(false);
+checkRestoreSession();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>

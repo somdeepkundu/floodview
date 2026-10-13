@@ -1,0 +1,1833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>FloodView — Flood Ground-Truthing Camera</title>
+  <meta name="description" content="Geo-tagged flood ground truthing: position, camera look direction, ground footprint, water depth, flow and water-edge markers. Works offline." />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="theme-color" content="#070d1c" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <!-- Everything is served from this site (no CDNs) so the app keeps working offline. -->
+  <link rel="stylesheet" href="vendor/fonts/comfortaa.css" />
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/jszip.min.js"></script>
+  <style>
+    /* FloodView 1.0 — same structure, type and glass finish as CropView v3.6,
+       with a monsoon-blue accent. Flood classes have their own fixed colours
+       (see FCLASS in the script) and always come with a text label. */
+    :root{
+      --bg:#070d1c; --surface:#0e1628; --surface2:#172036; --border:#24304a;
+      --acc:#38bdf8; --acc2:#0284c7; --amber:#fbbf24; --red:#f87171; --ok:#4ade80;
+      --text:#e8f0fe; --muted:#94a3b8;
+      --fl:#3b82f6; --wl:#14b8a6; --dr:#f59e0b; --edge:#f472b6;
+      --font:'Comfortaa',system-ui,sans-serif; --radius:10px;
+      --g-aurora:
+        radial-gradient(120% 55% at 10% -8%, rgba(56,189,248,.18), transparent 62%),
+        radial-gradient(90% 50% at 100% 4%, rgba(59,130,246,.14), transparent 60%),
+        radial-gradient(130% 60% at 50% 112%, rgba(20,184,166,.12), transparent 62%),
+        #070d1c;
+      --g-hud:rgba(7,13,28,.5); --g-bar:rgba(9,15,30,.62);
+      --g-card:linear-gradient(180deg,rgba(255,255,255,.058),rgba(255,255,255,.022));
+      --g-fill:rgba(255,255,255,.05); --g-fill-hi:rgba(255,255,255,.09);
+      --g-edge:rgba(255,255,255,.10); --g-edge-hi:rgba(255,255,255,.16);
+      --g-shine:inset 0 1px 0 rgba(255,255,255,.075);
+      --g-drop:0 10px 28px -12px rgba(0,0,0,.7);
+      --g-blur:blur(14px) saturate(160%); --g-blur-sm:blur(9px) saturate(150%);
+    }
+    html.g-lite{--g-hud:rgba(7,13,28,.8);--g-bar:rgba(9,15,30,.92)}
+    html.g-lite *{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+    @media (prefers-reduced-transparency:reduce){:root{--g-hud:rgba(7,13,28,.86);--g-bar:rgba(9,15,30,.95)}*{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}}
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{height:100%;background:var(--g-aurora);color:var(--text);font-family:var(--font);font-variant-numeric:tabular-nums;overflow:hidden}
+    button{font-family:inherit;color:inherit}
+
+    /* HEADER + TABS */
+    #header{position:fixed;top:0;left:0;right:0;z-index:1000;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top));background:var(--g-bar);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-bottom:1px solid var(--g-edge);box-shadow:var(--g-shine)}
+    .logo{font-size:14px;font-weight:700;color:var(--acc);white-space:nowrap}
+    .logo span{color:var(--muted);font-weight:400}
+    .logo .proj{color:var(--amber);font-size:10px;display:block;margin-top:1px;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+    #hdr-right{display:flex;align-items:center;gap:7px}
+    #cap-badge{font-size:10px;color:var(--muted);white-space:nowrap}
+    .pill-btn{font-size:10px;color:var(--muted);background:var(--g-fill);border:1px solid var(--g-edge);box-shadow:var(--g-shine);border-radius:20px;padding:4px 10px;cursor:pointer;white-space:nowrap}
+    #status-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);transition:all .4s;flex-shrink:0}
+    #status-dot.active{background:var(--acc);box-shadow:0 0 0 4px rgba(56,189,248,.2);animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{box-shadow:0 0 0 4px rgba(56,189,248,.2)}50%{box-shadow:0 0 0 8px rgba(56,189,248,.05)}}
+    #tabs{position:fixed;top:var(--hdr-h,51px);left:0;right:0;z-index:999;display:flex;background:rgba(9,15,30,.45);border-bottom:1px solid var(--g-edge)}
+    .tab{position:relative;flex:1;padding:9px 0;text-align:center;font-size:11px;letter-spacing:.5px;color:var(--muted);cursor:pointer}
+    .tab::before{content:'';position:absolute;inset:5px 10px;border-radius:999px;z-index:-1;border:1px solid transparent;transition:background .2s,border-color .2s}
+    .tab.active{color:var(--acc)}
+    .tab.active::before{background:linear-gradient(180deg,rgba(56,189,248,.2),rgba(56,189,248,.07));border-color:rgba(56,189,248,.38);box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 18px -5px rgba(56,189,248,.55)}
+
+    #app{position:fixed;top:calc(var(--hdr-h,51px) + 40px);left:0;right:0;bottom:0;overflow:hidden}
+    .panel{display:none;height:100%;flex-direction:column}
+    .panel.active{display:flex}
+
+    /* CAMERA */
+    #vcont{flex:1;position:relative;overflow:hidden;background:#000;min-height:0}
+    #video{width:100%;height:100%;object-fit:cover}
+    #fov-ol{position:absolute;inset:0;pointer-events:none}
+    .ch{position:absolute;background:rgba(56,189,248,.45)}
+    .ch-h{top:50%;left:25%;width:50%;height:1px;transform:translateY(-50%)}
+    .ch-v{left:50%;top:25%;height:50%;width:1px;transform:translateX(-50%)}
+    .ch-c{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:16px;height:16px;border:2px solid var(--acc);border-radius:50%;box-shadow:0 0 10px rgba(56,189,248,.45)}
+    body.edge-on .ch-c{border-color:var(--edge);box-shadow:0 0 12px rgba(244,114,182,.7);width:22px;height:22px}
+    body.edge-on .ch{background:rgba(244,114,182,.55)}
+    .corner{position:absolute;width:20px;height:20px;border-color:var(--acc);border-style:solid;opacity:.7}
+    .corner.tl{top:12%;left:8%;border-width:2px 0 0 2px}.corner.tr{top:12%;right:8%;border-width:2px 2px 0 0}
+    .corner.bl{bottom:12%;left:8%;border-width:0 0 2px 2px}.corner.br{bottom:12%;right:8%;border-width:0 2px 2px 0}
+    #aim-tag{position:absolute;top:calc(50% + 16px);left:50%;transform:translateX(-50%);font-size:9px;color:var(--text);background:var(--g-hud);border:1px solid var(--g-edge);border-radius:10px;padding:2px 7px;white-space:nowrap;-webkit-backdrop-filter:var(--g-blur-sm);backdrop-filter:var(--g-blur-sm);text-shadow:0 1px 2px rgba(0,0,0,.6)}
+    #aim-tag.warn{color:var(--amber);border-color:rgba(251,191,36,.5)}
+
+    #tilt-guide{position:absolute;right:14px;top:50%;transform:translateY(-50%);width:34px;display:flex;flex-direction:column;align-items:center;gap:4px}
+    #tilt-bar{position:relative;width:28px;height:130px;background:var(--g-hud);border-radius:14px;border:1px solid var(--g-edge-hi);overflow:hidden;-webkit-backdrop-filter:var(--g-blur-sm);backdrop-filter:var(--g-blur-sm)}
+    #tilt-zone{position:absolute;left:0;right:0;background:rgba(74,222,128,.14);border-top:1px solid rgba(74,222,128,.5);border-bottom:1px solid rgba(74,222,128,.5)}
+    #tilt-pin{position:absolute;left:3px;right:3px;height:3px;background:var(--acc);border-radius:2px;box-shadow:0 0 6px rgba(56,189,248,.7);transition:top .2s}
+    #tilt-pin.ok{background:var(--ok);box-shadow:0 0 6px rgba(74,222,128,.7)}
+    #tilt-pin.warn{background:var(--amber);box-shadow:0 0 6px rgba(251,191,36,.7)}
+    #tilt-deg{font-size:9px;color:var(--acc);background:var(--g-hud);border:1px solid var(--g-edge);padding:2px 4px;border-radius:4px}
+    #tilt-deg.ok{color:var(--ok)} #tilt-deg.warn{color:var(--amber)}
+    #tilt-lbl{font-size:8px;color:var(--muted);text-align:center;line-height:1.4;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+
+    #compass{position:absolute;top:14px;right:14px;width:64px;height:64px;cursor:pointer;border-radius:50%;-webkit-backdrop-filter:var(--g-blur-sm);backdrop-filter:var(--g-blur-sm);box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 8px 22px -8px rgba(0,0,0,.7)}
+    #compass svg{width:100%;height:100%}
+    #compass-ring{transition:stroke .5s}
+    #compass-tap{position:absolute;bottom:-14px;left:0;right:0;text-align:center;font-size:7px;color:var(--muted);opacity:0;transition:opacity .2s;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+    #compass:active #compass-tap{opacity:1}
+
+    #hud{position:absolute;top:12px;left:12px;display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+    .hbadge{background:var(--g-hud);border:1px solid var(--g-edge);border-radius:8px;padding:3px 8px;font-size:10px;color:var(--acc);-webkit-backdrop-filter:var(--g-blur-sm);backdrop-filter:var(--g-blur-sm);box-shadow:var(--g-shine),0 4px 14px -6px rgba(0,0,0,.65);text-shadow:0 1px 2px rgba(0,0,0,.55)}
+    .hbadge.warn{color:var(--amber);border-color:var(--amber)}
+    .hbadge.bad{color:var(--red);border-color:var(--red)}
+    .hbadge.dim{color:var(--muted)}
+    #h-edge{display:none;color:#fff;background:rgba(244,114,182,.35);border-color:var(--edge)}
+    body.edge-on #h-edge{display:block}
+
+    /* TAG BAR — sticky tags that ride along with every capture */
+    #tagbar{display:flex;gap:6px;padding:8px 10px 2px;overflow-x:auto;scrollbar-width:none;background:var(--g-bar);border-top:1px solid var(--g-edge)}
+    #tagbar::-webkit-scrollbar{display:none}
+    .tchip{flex-shrink:0;display:flex;align-items:center;gap:5px;font-size:10px;padding:6px 10px;border-radius:999px;background:var(--g-fill);border:1px solid var(--g-edge);box-shadow:var(--g-shine);color:var(--muted);cursor:pointer;white-space:nowrap}
+    .tchip b{color:var(--text);font-weight:700}
+    .tchip.set{border-color:rgba(56,189,248,.45)}
+    .tchip.set b{color:var(--acc)}
+    .tchip.edge.on{background:rgba(244,114,182,.22);border-color:var(--edge);color:#fff}
+    .tchip.edge.on b{color:#fff}
+
+    /* CAPTURE = CLASS: one tap saves the photo labelled with that class */
+    #cc{padding:8px 10px 10px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:var(--g-bar);display:flex;gap:7px}
+    .cbtn{flex:1;min-width:0;border:none;border-radius:14px;padding:8px 2px 9px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;font-weight:700;letter-spacing:.3px;color:#04101f;transition:transform .12s,filter .12s}
+    .cbtn .cb-ic{font-size:17px;line-height:1}
+    .cbtn:active{transform:scale(.96);filter:brightness(.92)}
+    .cbtn.fl{background:linear-gradient(180deg,#93c5fd 0%,#3b82f6 55%,#2563eb 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -3px 8px rgba(15,40,110,.35),0 8px 18px -8px rgba(59,130,246,.75)}
+    .cbtn.wl{background:linear-gradient(180deg,#99f6e4 0%,#14b8a6 55%,#0d9488 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -3px 8px rgba(5,70,64,.35),0 8px 18px -8px rgba(20,184,166,.7)}
+    .cbtn.dr{background:linear-gradient(180deg,#fde68a 0%,#f59e0b 55%,#d97706 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -3px 8px rgba(110,60,5,.3),0 8px 18px -8px rgba(245,158,11,.7)}
+    .cbtn.fl,.cbtn.wl{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.35)}
+
+    /* generic buttons */
+    .btn{flex:1;padding:11px;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;border:none;border-radius:var(--radius);cursor:pointer;transition:transform .15s}
+    .btn:active{transform:scale(.97)}
+    .bp{background:linear-gradient(180deg,#bae6fd 0%,#38bdf8 46%,#0284c7 100%);color:#03121b;box-shadow:inset 0 1px 0 rgba(255,255,255,.6),inset 0 -3px 8px rgba(2,62,92,.35),0 8px 20px -8px rgba(56,189,248,.7)}
+    .bs{background:var(--g-fill);color:var(--text);border:1px solid var(--g-edge);box-shadow:var(--g-shine)}
+    .bd{background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.3)}
+
+    /* MAP */
+    #map{flex:1;min-height:0}
+    .leaflet-container{background:var(--bg)!important;font-family:var(--font)}
+    .leaflet-tile-pane{filter:brightness(.78) saturate(.85)}
+    .sat .leaflet-tile-pane{filter:none}
+    #mc{padding:10px 14px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:var(--g-bar);border-top:1px solid var(--g-edge);display:flex;gap:8px}
+    .leaflet-container .leaflet-bar{border:1px solid var(--g-edge-hi);border-radius:12px;overflow:hidden;box-shadow:var(--g-drop)}
+    .leaflet-container .leaflet-bar a{background:var(--g-hud);color:var(--text);border-bottom-color:var(--g-edge);-webkit-backdrop-filter:var(--g-blur-sm);backdrop-filter:var(--g-blur-sm)}
+    .leaflet-container .leaflet-popup-content-wrapper{background:rgba(14,22,40,.82);color:var(--text);border:1px solid var(--g-edge-hi);border-radius:14px;-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:var(--g-shine),var(--g-drop)}
+    .leaflet-container .leaflet-popup-tip{background:rgba(14,22,40,.9)}
+    .leaflet-popup-content{font-size:11px;line-height:1.6;margin:10px 12px}
+    #map-legend{position:absolute;left:10px;bottom:10px;z-index:800;display:flex;flex-wrap:wrap;gap:4px 10px;max-width:calc(100% - 20px);padding:6px 10px;border-radius:12px;background:var(--g-hud);border:1px solid var(--g-edge);-webkit-backdrop-filter:var(--g-blur-sm);backdrop-filter:var(--g-blur-sm);font-size:9.5px;color:var(--text);pointer-events:none}
+    #map-legend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+    #map-legend i{width:9px;height:9px;border-radius:50%;border:1.5px solid #fff;display:inline-block}
+
+    /* DATA */
+    #data-panel{overflow-y:auto;padding:14px;gap:10px}
+    .dc{background:var(--g-card);border:1px solid var(--g-edge);border-radius:14px;box-shadow:var(--g-shine),0 14px 32px -22px rgba(0,0,0,.9);padding:13px 15px;flex-shrink:0}
+    .dc h3{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
+    .dr{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px}
+    .dr:last-child{border-bottom:none}
+    .dl{color:var(--muted);font-size:12px;flex-shrink:0}
+    .dv{font-size:12px;color:var(--acc);text-align:right;min-width:0;overflow-wrap:anywhere}
+    .dv.na{color:var(--muted)}
+    .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+    .stat{background:var(--g-fill);border:1px solid var(--g-edge);border-radius:10px;padding:7px 4px;text-align:center}
+    .stat b{display:block;font-size:16px}
+    .stat small{font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+    #cap-list{display:flex;flex-direction:column;gap:8px}
+    .ci{background:var(--g-fill);border:1px solid var(--g-edge);border-left:3px solid var(--muted);border-radius:12px;box-shadow:var(--g-shine);padding:10px 12px;display:flex;gap:11px}
+    .cthumb{width:56px;height:56px;border-radius:8px;object-fit:cover;background:var(--surface2);border:1px solid var(--g-edge-hi);flex-shrink:0}
+    .cmeta{flex:1;min-width:0}
+    .ctop{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    .cls-pill{font-size:9px;font-weight:700;padding:2px 8px;border-radius:999px;color:#fff;letter-spacing:.3px}
+    .edge-pill{font-size:9px;font-weight:700;padding:2px 7px;border-radius:999px;color:#fff;background:rgba(244,114,182,.3);border:1px solid var(--edge)}
+    .cid{font-size:9.5px;color:var(--muted)}
+    .cdet{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.6;overflow-wrap:anywhere}
+    .cdet b{color:var(--text);font-weight:600}
+    .cact{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}
+    .chip{font-size:9px;padding:4px 9px;border-radius:20px;background:var(--g-fill);border:1px solid var(--g-edge);color:var(--muted);cursor:pointer}
+    .chip.g{background:rgba(56,189,248,.08);border-color:rgba(56,189,248,.4);color:var(--acc)}
+    .es{text-align:center;padding:30px 20px;color:var(--muted);font-size:12.5px;line-height:1.7}
+    .camh-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+    .camh-row input{flex:1}
+
+    /* START + SESSION SCREENS */
+    #perm,#proj-screen{display:none;position:fixed;inset:0;background:var(--g-aurora);flex-direction:column;align-items:center;padding:28px 22px;text-align:center;gap:14px;overflow-y:auto}
+    #perm{z-index:3000}#proj-screen{z-index:2900}
+    #perm.on,#proj-screen.on{display:flex}
+    .scr-inner{width:100%;max-width:340px;margin:auto;display:flex;flex-direction:column;align-items:center;gap:14px}
+    .lens{width:96px;height:96px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 32% 28%,rgba(255,255,255,.18),rgba(255,255,255,.03) 46%,rgba(56,189,248,.06) 100%);border:1px solid var(--g-edge-hi);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),inset 0 -10px 24px rgba(56,189,248,.10),0 22px 48px -22px rgba(56,189,248,.55)}
+    .lens img{width:62px;height:62px}
+    .scr-inner h2{font-size:20px;color:var(--acc)}
+    .scr-inner h2 span{color:var(--muted);font-weight:400}
+    .scr-inner p{font-size:12.5px;color:var(--muted);line-height:1.7}
+    .safety{background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.28);border-radius:12px;padding:10px 12px;font-size:11.5px;color:#fcd34d;line-height:1.65;text-align:left}
+    .safety b{color:var(--amber)}
+    .hint-box{font-size:11.5px;line-height:1.7;color:var(--muted);text-align:left;border-top:1px solid var(--g-edge);padding-top:14px}
+    .hint-box b{color:var(--text)}
+    #offline-state{font-size:10.5px;color:var(--muted)}
+    #offline-state.ok{color:var(--ok)}
+    .link-pill{display:inline-block;font-size:11px;color:var(--acc);text-decoration:none;border:1px solid var(--acc2);border-radius:20px;padding:8px 18px;background:var(--g-fill)}
+    .flbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;align-self:flex-start;margin-bottom:-8px}
+    .tinput{width:100%;padding:12px 14px;background:var(--g-fill);border:1px solid var(--g-edge-hi);box-shadow:var(--g-shine);border-radius:var(--radius);color:var(--text);font-family:var(--font);font-size:13px;outline:none}
+    .tinput:focus{border-color:var(--acc2);box-shadow:var(--g-shine),0 0 0 3px rgba(56,189,248,.18)}
+    .tinput::placeholder{color:#64748b}
+    .pform{display:flex;flex-direction:column;gap:12px;width:100%;align-items:flex-start;text-align:left}
+    .fhint{font-size:11px;color:var(--muted);line-height:1.6}
+    .fhint b{color:var(--acc);font-weight:600}
+    #resume-wrap{width:100%;display:none;flex-direction:column;gap:8px;text-align:left}
+    .resume{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border-radius:12px;background:var(--g-fill);border:1px solid var(--g-edge);box-shadow:var(--g-shine);cursor:pointer;text-align:left}
+    .resume b{display:block;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .resume small{font-size:10px;color:var(--muted)}
+    .resume .go{margin-left:auto;color:var(--acc);font-size:16px}
+
+    /* SHEETS + MODALS */
+    .ov{display:none;position:fixed;inset:0;z-index:4000;background:rgba(3,7,16,.5);-webkit-backdrop-filter:blur(8px) saturate(140%);backdrop-filter:blur(8px) saturate(140%)}
+    .ov.on{display:flex}
+    .modal-ov{align-items:center;justify-content:center;padding:20px}
+    .box{background:linear-gradient(180deg,rgba(26,35,58,.9),rgba(13,20,36,.88));border:1px solid var(--g-edge-hi);border-radius:20px;width:100%;max-width:400px;max-height:86vh;overflow-y:auto;padding:22px 20px;position:relative;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 30px 80px -24px rgba(0,0,0,.85);animation:g-rise .22s cubic-bezier(.2,.8,.2,1)}
+    @keyframes g-rise{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+    .xbtn{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:50%;background:var(--g-fill-hi);border:1px solid var(--g-edge-hi);color:var(--muted);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+    .sheet-ov{align-items:flex-end;justify-content:center;background:rgba(3,7,16,.35);-webkit-backdrop-filter:none;backdrop-filter:none}
+    .sheet{width:100%;max-width:520px;max-height:78vh;overflow-y:auto;background:linear-gradient(180deg,rgba(22,31,54,.97),rgba(12,19,34,.97));border:1px solid var(--g-edge-hi);border-bottom:none;border-radius:20px 20px 0 0;padding:8px 16px 16px;padding-bottom:max(16px,env(safe-area-inset-bottom));box-shadow:0 -20px 60px -20px rgba(0,0,0,.8);animation:sheet-up .22s cubic-bezier(.2,.8,.2,1)}
+    @keyframes sheet-up{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+    .grab{width:38px;height:4px;border-radius:4px;background:var(--g-edge-hi);margin:4px auto 10px}
+    .sheet h4{font-size:13px;color:var(--text);margin-bottom:2px}
+    .sheet .sub{font-size:10.5px;color:var(--muted);margin-bottom:10px;line-height:1.5}
+    .ssec{padding:10px 0;border-top:1px solid var(--g-edge)}
+    .ssec:first-of-type{border-top:none}
+    .slbl{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;display:flex;justify-content:space-between}
+    .opts{display:flex;flex-wrap:wrap;gap:6px}
+    .opt{font-size:11px;padding:8px 11px;border-radius:12px;background:var(--g-fill);border:1px solid var(--g-edge);color:var(--text);cursor:pointer;display:flex;flex-direction:column;align-items:flex-start;gap:1px;line-height:1.25}
+    .opt small{font-size:9px;color:var(--muted)}
+    .opt.on{background:linear-gradient(180deg,rgba(56,189,248,.24),rgba(56,189,248,.08));border-color:rgba(56,189,248,.6);box-shadow:0 0 16px -6px rgba(56,189,248,.7)}
+    .opt.cls.on{color:#fff}
+    .opt.danger.on{background:linear-gradient(180deg,rgba(248,113,113,.28),rgba(248,113,113,.08));border-color:rgba(248,113,113,.7)}
+    .edge-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .edge-row p{font-size:10.5px;color:var(--muted);line-height:1.55}
+    .sw{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
+    .sw input{opacity:0;width:0;height:0}
+    .sl{position:absolute;inset:0;background:var(--border);border-radius:20px;cursor:pointer;transition:.2s;box-shadow:inset 0 1px 3px rgba(0,0,0,.35)}
+    .sl::before{content:'';position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+    .sw input:checked+.sl{background:var(--edge)}
+    .sw input:checked+.sl::before{transform:translateX(20px)}
+    .sheet-btns{display:flex;gap:8px;margin-top:12px}
+    .asec{margin-bottom:16px}
+    .asec h4{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--g-edge)}
+    .asec p,.asec li{font-size:12px;color:var(--text);line-height:1.75}
+    .asec ol{padding-left:18px}
+    .asec a{color:var(--acc);text-decoration:none}
+    .alogo{font-size:22px;font-weight:700;color:var(--acc);margin-bottom:3px}
+    .alogo span{color:var(--muted);font-weight:400}
+    .aver{font-size:10px;color:var(--amber);margin-bottom:18px}
+    .atag{display:inline-block;font-size:10px;padding:3px 9px;border-radius:20px;border:1px solid var(--g-edge);background:var(--g-fill);color:var(--muted);margin:3px 3px 0 0}
+    .discbox{background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:8px;padding:10px 12px;font-size:11px;color:var(--amber);line-height:1.6}
+
+    /* GPS modal */
+    #acc-ring-wrap{display:flex;flex-direction:column;align-items:center;padding:10px 0 6px}
+    #acc-ring-svg{width:130px;height:130px}
+    .ring-track{fill:none;stroke:var(--surface2);stroke-width:10}
+    .ring-fill{fill:none;stroke-width:10;stroke-linecap:round;transition:stroke-dashoffset .6s,stroke .4s}
+    #fix-badge{margin-top:10px;font-size:12px;font-weight:700;padding:5px 16px;border-radius:20px;border:2px solid var(--muted);color:var(--muted)}
+    #fix-badge.good{border-color:var(--ok);color:var(--ok)}#fix-badge.ok{border-color:var(--amber);color:var(--amber)}#fix-badge.poor{border-color:var(--red);color:var(--red)}
+    .gsec{margin-top:14px}
+    .gsec h4{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--g-edge)}
+    .grow{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:12px}
+    .gl{color:var(--muted);font-size:11px}.gv{font-size:11px;color:var(--acc)}.gv.warn{color:var(--amber)}.gv.na{color:var(--muted)}
+    .acc-history{display:flex;gap:4px;align-items:flex-end;height:36px;margin-top:4px}
+
+    #toast{position:fixed;bottom:calc(150px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(260px);opacity:0;background:rgba(14,22,40,.82);border:1px solid var(--g-edge-hi);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:var(--g-shine),var(--g-drop);border-radius:24px;padding:9px 18px;font-size:11px;color:var(--text);z-index:9999;transition:transform .3s,opacity .3s;max-width:92vw;text-align:center;pointer-events:none}
+    #toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+    #toast.ok{border-color:var(--acc2);color:var(--acc)}
+    #toast.err{border-color:var(--red);color:var(--red)}
+    #flash{position:absolute;inset:0;pointer-events:none;opacity:0;z-index:10}
+    #flash.go{animation:flash .45s ease-out}
+    @keyframes flash{0%{opacity:.55}100%{opacity:0}}
+    ::-webkit-scrollbar{width:4px}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:2px}
+    @media (prefers-reduced-motion:reduce){.box,.sheet{animation:none}#flash.go{animation:none}}
+  </style>
+</head>
+<body>
+
+<!-- START SCREEN -->
+<div id="perm" class="on">
+  <div class="scr-inner">
+    <div class="lens"><img src="icons/icon.svg" alt="" /></div>
+    <h2>FLOOD<span>VIEW</span></h2>
+    <p>Geo-tagged flood ground truthing. Every photo records where you stand, where the camera looks, its ground footprint, and what the water is doing.</p>
+    <p style="color:var(--amber);font-size:12px;margin-top:-6px">Needs: Camera · GPS · Compass</p>
+    <button class="btn bp" style="max-width:260px;width:100%" onclick="initPermissions()">Grant Permissions &amp; Continue</button>
+    <div class="safety"><b>⚠ Stay safe.</b> Never wade into moving water: 15 cm of fast water can knock an adult over, and 30 cm can carry a car away. Tag from dry ground; the crosshair records the spot you aim at, not just where you stand.</div>
+    <div class="hint-box">
+      <b>How it works:</b> aim at the scene and tap <b style="color:#93c5fd">FLOODED</b>, <b style="color:#5eead4">WATERLOGGED</b> or <b style="color:#fcd34d">DRY</b>. One tap saves the photo with its class and your tags (depth, flow, trend, what's flooded). Turn on <b style="color:#f9a8d4">Edge</b> and put the crosshair on the waterline to trace the flood boundary.<br/><br/>
+      When you're done, export a ZIP from the Data tab and open it in the Explorer.
+    </div>
+    <div id="offline-state">Checking offline support…</div>
+    <a class="link-pill" href="explorer.html" target="_blank" rel="noopener">🗺️ Open FloodView Explorer ↗</a>
+  </div>
+</div>
+
+<!-- SESSION SCREEN -->
+<div id="proj-screen">
+  <div class="scr-inner">
+    <div class="lens" style="font-size:40px">📋</div>
+    <h2 style="font-size:16px">Flood Survey Session</h2>
+    <div id="resume-wrap">
+      <span class="flbl" style="margin-bottom:0">Continue a saved survey</span>
+      <div id="resume-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      <span class="flbl" style="margin:8px 0 0">Or start a new one</span>
+    </div>
+    <div class="pform">
+      <span class="flbl">Survey name</span>
+      <input id="pname" class="tinput" type="text" placeholder="e.g. Kolhapur_Panchganga_Aug2026" maxlength="60" autocomplete="off" spellcheck="false" />
+      <span class="flbl">Surveyor / notes (optional)</span>
+      <input id="pnotes" class="tinput" type="text" placeholder="e.g. Somdeep · day after peak" maxlength="80" autocomplete="off" />
+      <span class="flbl">Camera height (m)</span>
+      <input id="pcamh" class="tinput" type="number" step="0.05" min="0.2" max="60" value="1.5" inputmode="decimal" />
+      <div class="fhint">📏 Height of the phone above the ground, or <b>above the water surface</b> if you're standing in water, on a boat or on a bridge. Standing ≈ <b>1.4–1.6 m</b>. It scales the footprint and where the crosshair lands, and you can change it later in the Data tab.</div>
+      <button class="btn bp" style="width:100%;margin-top:4px" onclick="startProject()">Start Survey →</button>
+    </div>
+  </div>
+</div>
+
+<!-- TAG SHEET (live tags, or editing one saved capture) -->
+<div id="tag-ov" class="ov sheet-ov" onclick="if(event.target===this)closeSheet()">
+  <div class="sheet" id="tag-sheet">
+    <div class="grab"></div>
+    <h4 id="ts-title">Tags for the next captures</h4>
+    <div class="sub" id="ts-sub">These ride along with every capture until you change them. Tap a selected option again to clear it.</div>
+    <div class="ssec" id="ts-cls-sec" style="display:none">
+      <div class="slbl">Class</div>
+      <div class="opts" id="ts-cls"></div>
+    </div>
+    <div class="ssec" id="ts-depth-sec">
+      <div class="slbl"><span>Water depth</span><span style="text-transform:none;letter-spacing:0">body scale</span></div>
+      <div class="opts" id="ts-depth"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:9px">
+        <input id="ts-depth-cm" class="tinput" style="padding:9px 12px;font-size:12px;max-width:150px" type="number" min="0" max="1000" step="1" inputmode="numeric" placeholder="Measured cm" oninput="sheetDepthCm(this.value)" />
+        <span class="fhint" style="font-size:10px">optional: if you measured it (staff, pole)</span>
+      </div>
+    </div>
+    <div class="ssec" id="ts-flow-sec">
+      <div class="slbl">Flow</div>
+      <div class="opts" id="ts-flow"></div>
+    </div>
+    <div class="ssec" id="ts-trend-sec">
+      <div class="slbl">Water level trend</div>
+      <div class="opts" id="ts-trend"></div>
+    </div>
+    <div class="ssec" id="ts-land-sec">
+      <div class="slbl"><span>What's flooded</span><span style="text-transform:none;letter-spacing:0">pick any</span></div>
+      <div class="opts" id="ts-land"></div>
+    </div>
+    <div class="ssec" id="ts-edge-sec">
+      <div class="edge-row">
+        <div><div class="slbl" style="margin-bottom:4px">〰 Water edge marker</div>
+        <p>Marks the flood boundary. Put the crosshair on the waterline: FloodView stores the point where it lands, so you can tag the edge from a safe distance.</p></div>
+        <label class="sw"><input type="checkbox" id="ts-edge" onchange="sheetEdge(this.checked)" /><span class="sl"></span></label>
+      </div>
+    </div>
+    <div class="ssec" id="ts-note-sec" style="display:none">
+      <div class="slbl">Note</div>
+      <input id="ts-note" class="tinput" style="padding:10px 12px;font-size:12px" type="text" maxlength="200" placeholder="e.g. culvert blocked, road cut" />
+    </div>
+    <div class="sheet-btns" id="ts-btns-live"><button class="btn bp" onclick="closeSheet()">Done</button></div>
+    <div class="sheet-btns" id="ts-btns-edit" style="display:none">
+      <button class="btn bs" onclick="closeSheet()">Cancel</button>
+      <button class="btn bp" onclick="saveEdit()">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- GPS STATUS MODAL -->
+<div id="gps-ov" class="ov modal-ov" onclick="if(event.target===this)closeGPS()">
+  <div class="box">
+    <div class="xbtn" onclick="closeGPS()">✕</div>
+    <div style="font-size:16px;font-weight:700;color:var(--acc);margin-bottom:2px">📡 GPS STATUS</div>
+    <div style="font-size:10px;color:var(--muted)">Live · updates with every fix</div>
+    <div id="acc-ring-wrap">
+      <svg id="acc-ring-svg" viewBox="0 0 130 130">
+        <circle class="ring-track" cx="65" cy="65" r="52"/>
+        <circle id="ring-fill" class="ring-fill" cx="65" cy="65" r="52" stroke-dasharray="327" stroke-dashoffset="327" stroke="#38bdf8" transform="rotate(-90 65 65)"/>
+        <text id="ring-acc-val" x="65" y="60" text-anchor="middle" font-family="Comfortaa,sans-serif" font-size="22" font-weight="700" fill="#e8f0fe">—</text>
+        <text x="65" y="78" text-anchor="middle" font-family="Comfortaa,sans-serif" font-size="11" fill="#94a3b8">metres</text>
+        <text x="65" y="94" text-anchor="middle" font-family="Comfortaa,sans-serif" font-size="9" fill="#94a3b8">accuracy radius</text>
+      </svg>
+      <div id="fix-badge">NO FIX</div>
+    </div>
+    <div class="gsec">
+      <h4>📊 Fix</h4>
+      <div class="grow"><span class="gl">Accuracy (horizontal)</span><span class="gv" id="g-acc">—</span></div>
+      <div class="grow"><span class="gl">Accuracy (vertical)</span><span class="gv" id="g-altacc">—</span></div>
+      <div class="grow"><span class="gl">Fix quality</span><span class="gv" id="g-quality">—</span></div>
+      <div class="grow"><span class="gl">Averaged readings</span><span class="gv" id="g-smp">—</span></div>
+      <div class="grow"><span class="gl">Altitude (WGS84)</span><span class="gv" id="g-alt">—</span></div>
+      <div class="grow"><span class="gl">Last update</span><span class="gv" id="g-time">—</span></div>
+    </div>
+    <div class="gsec">
+      <h4>📈 Accuracy history (last 10)</h4>
+      <div class="acc-history" id="acc-history"></div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:9px;color:var(--muted)"><span>older</span><span>now</span></div>
+    </div>
+    <div class="fhint" style="margin-top:12px">Open sky gives the best fix. Buildings, trees and car roofs make it worse. Wait for <b>± 12 m or better</b> before tagging edges.</div>
+  </div>
+</div>
+
+<!-- ABOUT MODAL -->
+<div id="about-ov" class="ov modal-ov" onclick="if(event.target===this)closeAbout()">
+  <div class="box">
+    <div class="xbtn" onclick="closeAbout()">✕</div>
+    <div class="alogo">FLOOD<span>VIEW</span></div>
+    <div class="aver">Version 1.0 · 2026</div>
+    <div class="asec">
+      <h4>👨‍🔬 Developed by</h4>
+      <p><strong style="color:var(--acc)">Somdeep Kundu</strong><br/>
+      PhD Research Scholar<br/>
+      Rural Data Research and Analysis Lab <span style="color:var(--amber)">(RuDRA)</span><br/>
+      Centre for Technology Alternatives for Rural Areas <span style="color:var(--amber)">(C-TARA)</span><br/>
+      <strong>IIT Bombay</strong></p>
+    </div>
+    <div class="asec">
+      <h4>🌊 Purpose</h4>
+      <p>Field ground truth for flood maps, for example Sentinel-1 SAR or optical flood extents. Each capture stores the observer position, the camera look direction, the ground footprint and the point under the crosshair, plus a class (flooded, waterlogged or dry), water depth, flow, level trend, what is flooded and optional water-edge markers.</p>
+      <div style="margin-top:8px"><span class="atag">Open source</span><span class="atag">Works offline</span><span class="atag">GeoJSON · CSV</span><span class="atag">Sibling of CropView</span></div>
+    </div>
+    <div class="asec">
+      <h4>🧭 Field routine</h4>
+      <ol>
+        <li>Wait for a GPS fix and calibrate the compass (figure-8; tap the compass).</li>
+        <li>Set the tags that apply: depth, flow, trend, what's flooded.</li>
+        <li>Aim and tap FLOODED, WATERLOGGED or DRY.</li>
+        <li>For the boundary, switch on Edge and put the crosshair on the waterline.</li>
+        <li>Export a ZIP and open it in the Explorer.</li>
+      </ol>
+    </div>
+    <div class="asec">
+      <h4>🗺️ View your data</h4>
+      <p style="margin-bottom:8px">Open ZIPs in the FloodView Explorer to map, review and correct the labels. It also reads CropView ZIPs.</p>
+      <a class="link-pill" href="explorer.html" target="_blank" rel="noopener">Open FloodView Explorer ↗</a>
+    </div>
+    <div class="asec">
+      <h4>🌐 Contact</h4>
+      <p><a href="https://somdeepkundu.github.io" target="_blank" rel="noopener">somdeepkundu.github.io</a><br/>
+      <a href="https://github.com/somdeepkundu/floodview" target="_blank" rel="noopener">github.com/somdeepkundu/floodview</a><br/>
+      Sibling app: <a href="https://somdeepkundu.github.io/cropview-v3/" target="_blank" rel="noopener">CropView</a></p>
+    </div>
+    <div class="asec">
+      <h4>⚠️ Disclaimer</h4>
+      <div class="discbox">Position, heading, tilt, footprint and crosshair point depend on the phone's sensors and can be off by several metres or degrees. Depth on the body scale is an estimate. Validate before using for decisions, and never put yourself at risk to collect a point.</div>
+    </div>
+    <div class="asec" style="margin-bottom:0">
+      <h4>©️ Licence</h4>
+      <p>© 2026 Somdeep Kundu · IIT Bombay · <strong style="color:var(--acc)">MIT License</strong>. Free to use, modify and distribute with attribution.</p>
+    </div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<div id="header">
+  <div class="logo">FLOOD<span>VIEW</span> <span style="color:var(--acc)">1.0</span><span class="proj" id="hproj">—</span></div>
+  <div id="hdr-right">
+    <span id="cap-badge">0 cap</span>
+    <div class="pill-btn" id="gps-btn" onclick="openGPS()">📡 GPS</div>
+    <div class="pill-btn" onclick="openAbout()">ⓘ</div>
+    <div id="status-dot"></div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div id="tabs">
+  <div class="tab active" data-tab="camera" onclick="switchTab('camera')">📷 CAPTURE</div>
+  <div class="tab" data-tab="map" onclick="switchTab('map')">🗺 MAP</div>
+  <div class="tab" data-tab="data" onclick="switchTab('data')">📊 DATA</div>
+</div>
+
+<div id="app">
+  <!-- CAMERA -->
+  <div id="camera-panel" class="panel active">
+    <div id="vcont">
+      <video id="video" autoplay playsinline muted></video>
+      <div id="fov-ol">
+        <div class="ch ch-h"></div><div class="ch ch-v"></div><div class="ch-c"></div>
+        <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+        <div id="aim-tag">AIM —</div>
+      </div>
+      <div id="flash"></div>
+      <div id="tilt-guide">
+        <div id="tilt-bar"><div id="tilt-zone"></div><div id="tilt-pin"></div></div>
+        <div id="tilt-deg">—°</div>
+        <div id="tilt-lbl">TILT</div>
+      </div>
+      <!-- COMPASS: fixed heading pointer at top, rotating rose underneath. Tap to resync. -->
+      <div id="compass" onclick="manualRecalibrate()" title="Tap to recalibrate">
+        <svg viewBox="0 0 60 60">
+          <circle id="compass-ring" cx="30" cy="30" r="28" fill="rgba(7,13,28,.4)" stroke="#24304a" stroke-width="1.5"/>
+          <g id="crose" style="transform-origin:30px 30px">
+            <text x="30" y="11" text-anchor="middle" font-family="Comfortaa,sans-serif" font-size="7" fill="#38bdf8">N</text>
+            <text x="30" y="54" text-anchor="middle" font-family="Comfortaa,sans-serif" font-size="7" fill="#94a3b8">S</text>
+            <text x="6"  y="33" text-anchor="middle" font-family="Comfortaa,sans-serif" font-size="7" fill="#94a3b8">W</text>
+            <text x="54" y="33" text-anchor="middle" font-family="Comfortaa,sans-serif" font-size="7" fill="#38bdf8">E</text>
+            <line x1="30" y1="4" x2="30" y2="8" stroke="#38bdf8" stroke-width="1.5"/>
+            <line x1="30" y1="52" x2="30" y2="56" stroke="#94a3b8" stroke-width="1"/>
+            <line x1="4" y1="30" x2="8" y2="30" stroke="#94a3b8" stroke-width="1"/>
+            <line x1="52" y1="30" x2="56" y2="30" stroke="#94a3b8" stroke-width="1"/>
+          </g>
+          <polygon points="30,13 27,24 30,21 33,24" fill="#38bdf8" opacity=".95"/>
+          <polygon points="30,47 27,36 30,39 33,36" fill="#475569" opacity=".7"/>
+          <circle cx="30" cy="30" r="2.5" fill="#38bdf8" opacity=".8"/>
+        </svg>
+        <div id="compass-tap">TAP TO RECAL</div>
+      </div>
+      <div id="hud">
+        <div class="hbadge dim" id="h-lat">LAT —</div>
+        <div class="hbadge dim" id="h-lon">LON —</div>
+        <div class="hbadge dim" id="h-az">HDG —°</div>
+        <div class="hbadge dim" id="h-src">SRC —</div>
+        <div class="hbadge dim" id="h-acc">ACC —</div>
+        <div class="hbadge" id="h-edge">〰 EDGE · crosshair on the waterline</div>
+      </div>
+    </div>
+    <div id="tagbar">
+      <div class="tchip" id="tc-depth" onclick="openSheet('depth')">Depth <b>—</b></div>
+      <div class="tchip" id="tc-flow" onclick="openSheet('flow')">Flow <b>—</b></div>
+      <div class="tchip" id="tc-trend" onclick="openSheet('trend')">Trend <b>—</b></div>
+      <div class="tchip" id="tc-land" onclick="openSheet('land')">Flooded <b>—</b></div>
+      <div class="tchip edge" id="tc-edge" onclick="toggleEdge()">〰 Edge <b>OFF</b></div>
+    </div>
+    <div id="cc">
+      <button class="cbtn fl" onclick="doCapture('flooded')"><span class="cb-ic">🌊</span>FLOODED</button>
+      <button class="cbtn wl" onclick="doCapture('waterlogged')"><span class="cb-ic">💧</span>WATERLOGGED</button>
+      <button class="cbtn dr" onclick="doCapture('dry')"><span class="cb-ic">☀️</span>DRY</button>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div id="map-panel" class="panel">
+    <div style="flex:1;position:relative;display:flex;min-height:0">
+      <div id="map"></div>
+      <div id="map-legend">
+        <span><i style="background:var(--fl)"></i>Flooded</span>
+        <span><i style="background:var(--wl)"></i>Waterlogged</span>
+        <span><i style="background:var(--dr)"></i>Dry</span>
+        <span><i style="background:transparent;border-color:var(--edge);border-width:2.5px"></i>Water edge</span>
+      </div>
+    </div>
+    <div id="mc">
+      <button class="btn bs" onclick="centerMe()">⊕ POS</button>
+      <button class="btn bs" id="sat-btn" onclick="toggleSat()">🛰 SAT</button>
+      <button class="btn bs" id="fp-toggle-btn" onclick="toggleFootprints()" style="color:var(--amber)">◧ FP ON</button>
+      <button class="btn bp" onclick="switchTab('camera')">◉ CAP</button>
+    </div>
+  </div>
+
+  <!-- DATA -->
+  <div id="data-panel" class="panel">
+    <div class="dc">
+      <h3>📋 Survey</h3>
+      <div class="dr"><span class="dl">Name</span><span class="dv" id="d-proj" style="color:var(--amber)">—</span></div>
+      <div class="dr"><span class="dl">Notes</span><span class="dv" id="d-notes">—</span></div>
+      <div class="dr"><span class="dl">Started</span><span class="dv" id="d-start">—</span></div>
+      <div class="dr"><span class="dl">Saved on this phone</span><span class="dv" id="d-store">—</span></div>
+      <div class="camh-row">
+        <span class="dl">Camera height (m)</span>
+        <input id="camh-edit" class="tinput" style="padding:8px 10px;font-size:12px" type="number" step="0.05" min="0.2" max="60" inputmode="decimal" />
+        <button class="btn bs" style="flex:0 0 auto;padding:9px 12px" onclick="updateCamH()">Set</button>
+      </div>
+    </div>
+
+    <div class="dc">
+      <h3>📁 Captures (<span id="cc2">0</span>)</h3>
+      <div class="stat-row">
+        <div class="stat"><b style="color:#93c5fd" id="n-fl">0</b><small>Flooded</small></div>
+        <div class="stat"><b style="color:#5eead4" id="n-wl">0</b><small>Waterlog.</small></div>
+        <div class="stat"><b style="color:#fcd34d" id="n-dr">0</b><small>Dry</small></div>
+        <div class="stat"><b style="color:#f9a8d4" id="n-edge">0</b><small>Edge</small></div>
+      </div>
+      <div id="cap-list"><div class="es"><div style="font-size:34px">🌊</div>No captures yet.</div></div>
+    </div>
+
+    <div class="dc">
+      <h3>⬇ Export</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">The ZIP holds the photos, points, footprints and water-edge GeoJSON, a CSV and a README. It opens in the FloodView Explorer and in QGIS.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn bp" style="font-size:10px" onclick="doZIP(false)">📦 Export ZIP</button>
+        <button class="btn bs" style="font-size:10px;display:none" id="share-btn" onclick="doZIP(true)">↗ Share ZIP</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn bs" style="font-size:9.5px" onclick="doGeoJSON()">Points</button>
+        <button class="btn bs" style="font-size:9.5px;border-color:var(--amber);color:var(--amber)" onclick="doFootprintsGJ()">◧ Footprints</button>
+        <button class="btn bs" style="font-size:9.5px;border-color:var(--edge);color:#f9a8d4" onclick="doEdgeGJ()">〰 Edge</button>
+        <button class="btn bs" style="font-size:9.5px" onclick="doCSV()">CSV</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn bd" style="font-size:10px" onclick="doClear()">Delete this survey from phone</button>
+      </div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--g-edge);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <p style="font-size:11px;color:var(--muted);line-height:1.6;flex:1;min-width:160px">Map, review and fix labels from many ZIPs at once.</p>
+        <a class="link-pill" style="font-size:10px;padding:6px 14px" href="explorer.html" target="_blank" rel="noopener">🗺️ Explorer ↗</a>
+      </div>
+    </div>
+
+    <div class="dc">
+      <h3>📡 Live sensors</h3>
+      <div class="dr"><span class="dl">Latitude</span><span class="dv" id="d-lat">—</span></div>
+      <div class="dr"><span class="dl">Longitude</span><span class="dv" id="d-lon">—</span></div>
+      <div class="dr"><span class="dl">GPS accuracy</span><span class="dv" id="d-acc">—</span></div>
+      <div class="dr"><span class="dl">Averaged readings</span><span class="dv" id="d-smp">—</span></div>
+      <div class="dr"><span class="dl">Altitude</span><span class="dv" id="d-alt">—</span></div>
+      <div class="dr"><span class="dl">Look direction</span><span class="dv" id="d-az">—</span></div>
+      <div class="dr"><span class="dl">Sensors</span><span class="dv" id="d-sens">—</span></div>
+      <div class="dr"><span class="dl">Camera tilt (from straight down)</span><span class="dv" id="d-tilt">—</span></div>
+      <div class="dr"><span class="dl">Camera height</span><span class="dv" id="d-camh">—</span></div>
+      <div class="dr"><span class="dl">Est. horizontal FOV</span><span class="dv" id="d-fov">~65°</span></div>
+      <div class="dr"><span class="dl">Ground footprint</span><span class="dv" id="d-fp">—</span></div>
+      <div class="dr"><span class="dl">Crosshair point</span><span class="dv" id="d-aim">—</span></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<canvas id="snap" style="display:none"></canvas>
+
+<script>
+const APP_VERSION = '1.0.0';
+const S = {
+  lat:null,lon:null,alt:null,acc:null,altAcc:null,lastGPSTime:null,
+  gpsSamples:0,
+  az:0,tilt:45,fov:65,
+  camH:1.5,            // camera height ABOVE GROUND / WATER SURFACE in metres — NOT GPS altitude.
+  // ── heading (from CropView v3.2.1+, unchanged) ──
+  compassRaw:0, heading:0, headingSrc:'—', signalState:'OK', lowConfidence:false,
+  gpsBearing:null, gpsBearingTime:0, prevFix:null,
+  gotAbsolute:false,
+  platform:'unknown', sensorPerm:'unknown', compassStart:0, noSensorWarned:false,
+  oriCount:0, absCount:0,
+  lastValidOriTime:null, lastAnyOriTime:null, lastMotionTime:null,
+  lastAlphaSeen:null, lastAlphaChangeTime:null, lastResyncTime:0,
+  dispAz:0,
+  caps:[],
+  facing:'environment',stream:null,
+  map:null,umark:null,fovL:null,rayL:null,coneL:null,aimL:null,capL:null,fpL:null,edgeL:null,
+  sat:false,tile:null,
+  proj:{name:'',notes:'',t:''},
+  // flood tags — sticky: they ride along with every capture until changed
+  tags:{depth:null, depthCm:null, flow:null, trend:null, land:[], edge:false},
+  memPhotos:{},        // only used if IndexedDB is unavailable
+  fastWarned:false
+};
+
+/* ── FLOOD VOCABULARY ── (keys are what goes into the exports) */
+const FCLASS = {
+  flooded:     {label:'Flooded',     icon:'🌊', col:'#3b82f6'},
+  waterlogged: {label:'Waterlogged', icon:'💧', col:'#14b8a6'},
+  dry:         {label:'Dry',         icon:'☀️', col:'#f59e0b'},
+};
+const UNLABELLED_COL = '#94a3b8', EDGE_COL = '#f472b6';
+/* Body-scale depth. cm = representative value used when nothing was measured. */
+const DEPTH = [
+  {k:'none',       label:'No standing water', short:'None',   cm:0,   range:'0 cm'},
+  {k:'ankle',      label:'Ankle',             short:'Ankle',  cm:10,  range:'up to ~20 cm'},
+  {k:'knee',       label:'Knee',              short:'Knee',   cm:45,  range:'~20–60 cm'},
+  {k:'waist',      label:'Waist',             short:'Waist',  cm:90,  range:'~60–110 cm'},
+  {k:'chest',      label:'Chest',             short:'Chest',  cm:130, range:'~110–150 cm'},
+  {k:'above_head', label:'Above head',        short:'>Head',  cm:170, range:'over ~150 cm'},
+];
+const FLOW  = [{k:'still',label:'Still'},{k:'slow',label:'Slow'},{k:'fast',label:'Fast ⚠'}];
+const TREND = [{k:'rising',label:'↑ Rising'},{k:'steady',label:'→ Steady'},{k:'receding',label:'↓ Receding'}];
+const LAND  = [
+  {k:'cropland',label:'🌾 Cropland'},{k:'road',label:'🛣️ Road'},{k:'settlement',label:'🏘️ Settlement'},
+  {k:'open_land',label:'🟫 Open land'},{k:'vegetation',label:'🌳 Trees / grass'},{k:'water_body',label:'🏞️ River / pond (normal water)'},
+];
+const findK = (arr,k) => arr.find(x=>x.k===k) || null;
+
+/* ── GEODESY ────────────────────────────────────────────────────────
+   Replaces turf.js (560 KB) with the same spherical formulas turf 6.5
+   uses (R = 6371008.8 m). Verified identical to turf to floating-point
+   precision over 20 000 random cases before release. */
+const R_EARTH = 6371008.8, D2R = Math.PI/180;
+function geoDist(lat1,lon1,lat2,lon2){
+  const dLat=(lat2-lat1)*D2R, dLon=(lon2-lon1)*D2R;
+  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*D2R)*Math.cos(lat2*D2R)*Math.sin(dLon/2)**2;
+  return 2*R_EARTH*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function geoBearing(lat1,lon1,lat2,lon2){
+  const p1=lat1*D2R,p2=lat2*D2R,dl=(lon2-lon1)*D2R;
+  const y=Math.sin(dl)*Math.cos(p2), x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+  return (Math.atan2(y,x)/D2R+360)%360;
+}
+function geoDest(lat,lon,distM,brgDeg){            // → [lat, lon]
+  const d=distM/R_EARTH, t=brgDeg*D2R, p1=lat*D2R, l1=lon*D2R;
+  const p2=Math.asin(Math.sin(p1)*Math.cos(d)+Math.cos(p1)*Math.sin(d)*Math.cos(t));
+  const l2=l1+Math.atan2(Math.sin(t)*Math.sin(d)*Math.cos(p1),Math.cos(d)-Math.sin(p1)*Math.sin(p2));
+  return [p2/D2R, l2/D2R];
+}
+
+/* ═══ Sensor core from CropView v3.6 (index.html), copied unchanged ═══ */
+/* ── HEADING FUSION (v3) ───────────────────────────────────────────
+   v1 bug: Android deviceorientationabsolute.alpha increases COUNTER-
+   clockwise, but v1 used it raw — mirroring the heading.
+   v2 fixed the mirroring and added GPS-bearing fusion, but the FOV
+   cone still froze on some phones. The cause: the code trusted every
+   orientation event unconditionally and only ever redrew on an event.
+   Three real, device-specific DeviceOrientation quirks fell through:
+     1. An event fires with alpha === null (sensor still initialising,
+        or momentarily unavailable) — old code did `e.alpha||0`, which
+        silently reported due North as if it were a real reading.
+     2. `deviceorientationabsolute` fires once with garbage, latching
+        "gotAbsolute" forever and permanently blocking the relative-
+        event fallback even if the absolute stream later dies.
+     3. Some OEM builds keep firing events but the value itself freezes
+        (a known issue after backgrounding/foregrounding the tab).
+   v3 validates every reading, watches the stream's own health with a
+   watchdog (watchdogTick), and silently resubscribes when it detects
+   any of the three. If it genuinely can't get a fix it says so in the
+   SRC badge instead of showing a confident, wrong cone. A visible
+   rAF loop (visualLoop) also decouples rendering from event cadence,
+   so the compass rose and map cone stay live even between events.
+   Design informed by: flutter_compass (trust the OS-fused absolute
+   stream, corroborate with a second live sensor), the Camera-Overlay-
+   Android reference (continuous low-pass-filtered redraw, not just
+   on-event), and open-sensor-platform's calibrated/uncalibrated +
+   background-calibration architecture (explicit confidence state
+   instead of one opaque number). */
+const STALE_MS = 2500;     // no valid reading for this long → mark STALE, try a silent resync
+const LOST_MS = 8000;      // no valid reading for this long → mark LOST (still shows last-known)
+const STUCK_MS = 6000;     // events keep firing but the value hasn't moved → probably frozen
+const RESYNC_COOLDOWN = 5000;
+
+function screenAngle(){
+  if(screen.orientation && typeof screen.orientation.angle==='number') return screen.orientation.angle;
+  if(typeof window.orientation==='number') return window.orientation;
+  return 0;
+}
+function angDiff(a,b){ let d=Math.abs(a-b)%360; return d>180?360-d:d; }
+
+/* Tilt of the REAR CAMERA axis measured from nadir (straight down).
+     0°  = camera pointing straight at the ground
+    90°  = camera on the horizon
+   >90°  = camera pointing above the horizon (at the sky — no ground intersection)
+
+   v3.0 used Math.abs(e.beta||45), which was wrong three ways:
+     - it ignored gamma, so in landscape a phone aimed 45° down reported
+       beta≈0 and the app called it FLAT;
+     - Math.abs() made a phone aimed at the sky indistinguishable from one
+       aimed at the crop;
+     - `||45` turned a genuine beta===0 (phone flat, camera straight down)
+       into a fabricated 45° reading.
+   The device z-axis has world-vertical component cos(beta)cos(gamma), so the
+   rear camera (-z) sits acos(cos b · cos g) off nadir. Screen-rotation
+   independent, because it describes a physical axis, not the screen. */
+function tiltFromEvent(e){
+  const b=e.beta, g=e.gamma;
+  if(b===null||b===undefined||isNaN(b)) return null;
+  if(g===null||g===undefined||isNaN(g)) return null;
+  const br=b*Math.PI/180, gr=g*Math.PI/180;
+  let c = Math.cos(br)*Math.cos(gr);
+  c = Math.min(1, Math.max(-1, c));
+  return Math.round(Math.acos(c)*180/Math.PI);
+}
+function lerpAngle(a,b,t){ let d=((b-a+540)%360)-180; return ((a+d*t)%360+360)%360; }
+
+/* Heading of the REAR CAMERA axis (device -z), clockwise from north, from
+   the full W3C rotation R = Rz(alpha)·Rx(beta)·Ry(gamma), world = E,N,Up.
+   v3.1 used (360 - alpha + screenAngle), which is only right with the phone
+   near flat. Held upright (beta ≈ 90°, the normal way to shoot a field),
+   ZXY Euler angles hit gimbal lock: Chrome can report alpha and gamma
+   jumping together by ~180°, which leaves the physical rotation unchanged
+   but flips a heading built from alpha alone. The rotation matrix is
+   continuous through that, and describes the camera axis directly, so no
+   screen-orientation correction is needed (portrait or landscape).
+   When the camera points almost straight down its horizontal direction is
+   undefined, so we fall back to the direction of the phone's top edge. */
+function cameraHeading(alpha, beta, gamma){
+  const d=Math.PI/180;
+  const cA=Math.cos(alpha*d), sA=Math.sin(alpha*d);
+  const cB=Math.cos(beta*d),  sB=Math.sin(beta*d);
+  const cG=Math.cos(gamma*d), sG=Math.sin(gamma*d);
+  const east  = -(cA*sG + cG*sA*sB);
+  const north =   cA*cG*sB - sA*sG;
+  if(Math.hypot(east,north) < 0.17){          // camera within ~10° of nadir/zenith
+    return ((Math.atan2(-cB*sA, cA*cB)/d) + 360) % 360;   // phone-top direction
+  }
+  return ((Math.atan2(east, north)/d) + 360) % 360;
+}
+
+/* v3.2: the camera heading comes ONLY from the orientation sensor.
+   v2/v3.1 let the GPS travel bearing override the compass whenever the
+   phone had moved >=3 m in the last 6 s, and also used it to "auto-
+   calibrate" a compass offset. Both assumed the camera faces the direction
+   of travel. From a vehicle (or walking and shooting sideways) that is
+   false: every capture got the car's direction, the cone ignored phone
+   rotation, and the learned offset kept rotating the compass toward the
+   road even after stopping. GPS jitter of a few metres while standing
+   still triggered the same lock. The travel bearing is now kept only as
+   metadata (travel_bearing_deg / look_side in the export). */
+function fuseHeading(){
+  const compass = ((S.compassRaw % 360) + 360) % 360;
+  S.az = Math.round(compass);
+  const oriAge = S.lastValidOriTime ? Date.now()-S.lastValidOriTime : Infinity;
+  S.heading = compass; // always the last sensor reading; the label says how much to trust it
+  if(oriAge < STALE_MS){
+    S.headingSrc = S.lowConfidence ? 'COMPASS·LOW-CONF' : 'COMPASS';
+    S.signalState = S.lowConfidence ? 'STALE' : 'OK';
+  } else if(oriAge < LOST_MS){
+    S.headingSrc = 'STALE·HOLD';
+    S.signalState = 'STALE';
+  } else {
+    S.headingSrc = S.sensorPerm==='denied' ? 'SENSORS BLOCKED'
+                 : (!S.lastAnyOriTime ? 'NO SENSOR DATA' : 'SIGNAL LOST');
+    S.signalState = 'LOST';
+  }
+}
+
+/* Travel bearing (GPS) — fresh only if we moved recently. Metadata only. */
+function travelBearing(){
+  return (S.gpsBearing!==null && (Date.now()-S.gpsBearingTime) < 6000) ? S.gpsBearing : null;
+}
+/* Where the camera looks relative to the direction of travel. */
+function lookSide(rel){
+  if(rel===null) return null;
+  const a=Math.abs(rel);
+  if(a<=30) return 'AHEAD';
+  if(a>=150) return 'BEHIND';
+  return rel<0 ? 'LEFT' : 'RIGHT';
+}
+
+/* ── START ── */
+async function initPermissions(){
+  document.getElementById('perm').classList.remove('on');
+  document.getElementById('proj-screen').classList.add('on');
+  startGPS(); startCompass();     // sensor permission must be asked inside the tap, before any await
+  await DB.ready;
+  renderResumeList();
+}
+
+async function startProject(resumeName){
+  await DB.ready;
+  let n, notes, ch, t;
+  if(resumeName){
+    const sess = await DB.getSession(resumeName);
+    if(!sess){ toast('Saved survey not found','err'); return; }
+    n = sess.name; notes = sess.notes||''; ch = sess.camH||1.5; t = sess.started||new Date().toISOString();
+  } else {
+    const raw = document.getElementById('pname').value.trim();
+    if(!raw){toast('Enter a survey name','err');return;}
+    n = raw.replace(/[^a-zA-Z0-9_\-.]/g,'_');
+    notes = document.getElementById('pnotes').value.trim();
+    ch = parseFloat(document.getElementById('pcamh').value);
+    if(!isFinite(ch) || ch < 0.2 || ch > 60){ toast('Camera height must be 0.2–60 m','err'); return; }
+    const existing = await DB.getSession(n);
+    t = existing ? existing.started : new Date().toISOString();
+    if(existing) toast('Continuing saved survey '+n,'ok');
+  }
+  S.proj.name=n; S.proj.notes=notes; S.proj.t=t; S.camH=ch;
+  await DB.putSession();
+  document.getElementById('proj-screen').classList.remove('on');
+  document.getElementById('hproj').textContent = S.proj.name;
+  document.getElementById('camh-edit').value = S.camH;
+  startCamera(); initMap(); await loadCaps(); updData(); keepAwake();
+  setDot('active');
+  setTimeout(()=>toast('Tap FLOODED, WATERLOGGED or DRY to capture','ok'), 900);
+}
+
+async function renderResumeList(){
+  const list = await DB.listSessions();
+  const wrap = document.getElementById('resume-wrap');
+  if(!list.length){ wrap.style.display='none'; return; }
+  wrap.style.display='flex';
+  document.getElementById('resume-list').innerHTML = list.slice(0,4).map(s=>`
+    <button class="resume" onclick="startProject(${esc(JSON.stringify(s.name))})">
+      <div style="min-width:0"><b>${esc(s.name)}</b><small>${s.count} capture${s.count===1?'':'s'} · ${new Date(s.updated||s.started).toLocaleDateString()} · camera ${(+s.camH||1.5).toFixed(2)} m</small></div>
+      <span class="go">→</span>
+    </button>`).join('');
+}
+
+/* ── CAMERA ── */
+async function startCamera(){
+  try{
+    if(S.stream) S.stream.getTracks().forEach(t=>t.stop());
+    S.stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:S.facing,width:{ideal:1920},height:{ideal:1080}}});
+    document.getElementById('video').srcObject = S.stream;
+  }catch(e){toast('Camera: '+e.message,'err');}
+}
+/* Keep the screen awake during a survey; re-acquired when the tab returns. */
+let _wake=null;
+async function keepAwake(){
+  try{ if('wakeLock' in navigator && document.visibilityState==='visible'){ _wake = await navigator.wakeLock.request('screen'); } }catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && S.proj.name) keepAwake(); });
+
+/* ── GPS ── (CropView v3.2+ smoothing; turf calls replaced by geoDist/geoBearing) */
+const GPS_BUF = [];
+const GPS_BUF_MAX = 6;
+const GPS_LOCK_THR = 12;
+function gpsSmooth(){
+  if(!GPS_BUF.length) return null;
+  const sorted = [...GPS_BUF].sort((a,b)=>a.acc-b.acc);
+  const use = sorted.length >= 3 ? sorted.slice(0,-1) : sorted;
+  let tw=0, wlat=0, wlon=0, walt=0, hasAlt=false;
+  use.forEach(r=>{
+    // accuracy 0 (reported by some external-GNSS / mock-location apps) would give an
+    // infinite weight and a NaN position; treat anything under 0.5 m as 0.5 m
+    const a=Math.max(isFinite(r.acc)?r.acc:50, 0.5), w=1/(a*a);
+    tw+=w; wlat+=r.lat*w; wlon+=r.lon*w;
+    if(r.alt!==null){walt+=r.alt*w; hasAlt=true;}
+  });
+  return{lat:wlat/tw, lon:wlon/tw, alt:hasAlt?walt/tw:null, acc:use[0].acc, altAcc:use[0].altAcc, samples:use.length};
+}
+function startGPS(){
+  if(!navigator.geolocation){ toast('This browser has no GPS access','err'); return; }
+  navigator.geolocation.watchPosition(p=>{
+    GPS_BUF.push({lat:p.coords.latitude,lon:p.coords.longitude,alt:p.coords.altitude,acc:p.coords.accuracy,altAcc:p.coords.altitudeAccuracy});
+    if(GPS_BUF.length>GPS_BUF_MAX) GPS_BUF.shift();
+    const g=gpsSmooth();
+    if(g){
+      S.lat=g.lat; S.lon=g.lon; S.alt=g.alt; S.acc=g.acc; S.altAcc=g.altAcc; S.gpsSamples=g.samples;
+      /* GPS travel bearing — direction of MOVEMENT, metadata only (never the camera heading). */
+      if(S.prevFix){
+        const moved = geoDist(S.prevFix.lat,S.prevFix.lon,g.lat,g.lon);
+        if(moved >= Math.max(3, g.acc) && g.acc < 25){
+          S.gpsBearing = geoBearing(S.prevFix.lat,S.prevFix.lon,g.lat,g.lon);
+          S.gpsBearingTime = Date.now();
+          S.prevFix = {lat:g.lat, lon:g.lon};
+        }
+      } else S.prevFix = {lat:g.lat, lon:g.lon};
+      fuseHeading();
+    }
+    S.lastGPSTime=Date.now();
+    recordGPSHistory(p.coords.accuracy);
+    updHUD(); updData(); updMapPos(); updFov();
+  },e=>toast('GPS: '+e.message,'err'),{enableHighAccuracy:true,maximumAge:0,timeout:15000});
+}
+
+/* ═══ Compass core from CropView v3.6 (index.html), copied unchanged ═══ */
+/* ── COMPASS ──────────────────────────────────────────────────────
+   Two independent problems, handled separately:
+   (a) getting a *heading value at all* — the platform-specific event
+       wiring below.
+   (b) knowing when that value has gone stale, invalid or stuck, and
+       recovering — trackAlphaChange(), watchdogTick(), resyncOrientation().
+   applyHeading() is the single funnel every valid reading passes
+   through; anything that doesn't validate never reaches it. */
+/* v3.2.1 — THE ROOT CAUSE OF "SIGNAL LOST" ON ANDROID.
+   Up to v3.2.0 the app decided "this is an iPhone" by checking whether
+   DeviceOrientationEvent.requestPermission exists. Only Safari had it —
+   until Chrome 151 (July 2026) shipped the same API on Android. From then
+   on every updated Android phone took the iOS branch, listened only for
+   Apple's webkitCompassHeading (which Android never sends), and dropped
+   every reading, tilt included: heading stuck at 0°, tilt stuck at its 45°
+   default, SIGNAL LOST, and in v3.1 the GPS travel direction silently took
+   over as the "camera" heading.
+   Now: ask for permission wherever the API exists (it must happen inside
+   the button tap), always attach every listener, and let each EVENT say
+   which platform it came from. */
+function requestSensorPermission(){
+  const asks = [];
+  if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function')
+    asks.push(DeviceOrientationEvent.requestPermission().catch(()=> 'error'));
+  if(typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function')
+    asks.push(DeviceMotionEvent.requestPermission().catch(()=> 'error'));
+  if(!asks.length){ S.sensorPerm = 'n/a'; return Promise.resolve('n/a'); }
+  return Promise.all(asks).then(r=>{
+    S.sensorPerm = r.includes('denied') ? 'denied' : (r.includes('granted') ? 'granted' : 'unknown');
+    if(S.sensorPerm==='denied') toast('Motion sensors blocked — allow them in browser site settings','err');
+    return S.sensorPerm;
+  });
+}
+function startCompass(){
+  S.platform = 'unknown';          // set from the first real event (onOri)
+  S.compassStart = Date.now();
+  requestSensorPermission();       // called synchronously inside the tap
+  attachOrientationListeners();
+  window.addEventListener('devicemotion', onMotion, true);
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  setInterval(watchdogTick, 1000);
+  requestAnimationFrame(visualLoop);
+}
+
+function attachOrientationListeners(){
+  // Android: deviceorientationabsolute gives a true-north reference.
+  // deviceorientation carries iOS's webkitCompassHeading, and on Android is
+  // used for tilt, and for heading only if it declares itself absolute.
+  window.addEventListener('deviceorientationabsolute', onOriAbs, true);
+  window.addEventListener('deviceorientation', onOri, true);
+}
+function detachOrientationListeners(){
+  window.removeEventListener('deviceorientationabsolute', onOriAbs, true);
+  window.removeEventListener('deviceorientation', onOri, true);
+}
+
+function trackAlphaChange(raw){
+  const now = Date.now();
+  if(S.lastAlphaSeen===null){ S.lastAlphaSeen=raw; S.lastAlphaChangeTime=now; return; }
+  if(angDiff(raw, S.lastAlphaSeen) > 0.15) S.lastAlphaChangeTime = now;
+  S.lastAlphaSeen = raw;
+}
+
+function applyTilt(e){
+  const t = tiltFromEvent(e);
+  if(t !== null){ S.tilt = t; updTilt(); }  // null => hold last good tilt, never invent one
+}
+function applyHeading(headingDeg){
+  S.compassRaw = (headingDeg%360+360)%360;
+  S.lastValidOriTime = Date.now();
+  fuseHeading();
+  updHUD(); updData();
+}
+
+function onOriAbs(e){
+  S.lastAnyOriTime = Date.now();
+  S.absCount = (S.absCount||0) + 1;
+  if(S.platform==='unknown') S.platform = 'android';
+  if(e.alpha===null || e.alpha===undefined || isNaN(e.alpha)) return; // invalid — never treat as 0/North
+  // Latch ONLY here, below the validation. Latching on the bare event (as v3.0
+  // did) let a single alpha===null absolute event kill the relative fallback
+  // permanently — the compass then never recovered.
+  if(e.beta===null || e.gamma===null || isNaN(e.beta) || isNaN(e.gamma)) return;
+  S.gotAbsolute = true;
+  trackAlphaChange(e.alpha);
+  applyTilt(e);
+  applyHeading(cameraHeading(e.alpha, e.beta, e.gamma));
+}
+function onOri(e){
+  S.lastAnyOriTime = Date.now();
+  S.oriCount = (S.oriCount||0) + 1;
+  applyTilt(e);                    // beta/gamma are gravity-referenced on every platform
+  const h = e.webkitCompassHeading;
+  if(typeof h === 'number' && !isNaN(h)){
+    // iOS Safari — already a compass heading, clockwise from north
+    S.platform = 'ios';
+    trackAlphaChange(h);
+    const acc = e.webkitCompassAccuracy; // degrees; -1 or large means "don't trust this"
+    S.lowConfidence = (typeof acc==='number') && (acc<0 || acc>40);
+    applyHeading(h);
+    return;
+  }
+  if(S.platform==='unknown' && e.beta!==null && e.beta!==undefined) S.platform = 'android';
+  if(S.gotAbsolute) return; // a valid absolute stream is alive — ignore this one for heading
+  // Chrome/Android's plain 'deviceorientation' alpha is RELATIVE to an
+  // arbitrary start direction — never use it as a compass.
+  if(e.absolute !== true) return;
+  if(e.alpha===null || e.alpha===undefined || isNaN(e.alpha)) return;
+  if(e.beta===null || e.gamma===null || isNaN(e.beta) || isNaN(e.gamma)) return;
+  trackAlphaChange(e.alpha);
+  applyHeading(cameraHeading(e.alpha, e.beta, e.gamma));
+}
+function onMotion(){ S.lastMotionTime = Date.now(); } // heartbeat only — proves the sensor stack is alive
+
+function onVisibilityChange(){
+  // Backgrounding/foregrounding the tab is a common trigger for a frozen
+  // orientation stream on Android — force a clean resync on return.
+  if(document.visibilityState==='visible') resyncOrientation();
+}
+
+function resyncOrientation(force){
+  const now = Date.now();
+  if(!force && (now - S.lastResyncTime) < RESYNC_COOLDOWN) return;
+  S.lastResyncTime = now;
+  S.gotAbsolute = false;
+  S.lastAlphaChangeTime = now;
+  detachOrientationListeners();
+  attachOrientationListeners();
+}
+
+function manualRecalibrate(){
+  requestSensorPermission().then(()=>{
+    resyncOrientation(true);
+    if(S.sensorPerm!=='denied') toast('Recalibrating — move the phone in a figure-8','ok');
+  });
+}
+
+/* Watchdog: runs every second regardless of whether any sensor event
+   has fired. This is what actually fixes "works sometimes" — instead
+   of silently freezing, a dead or stuck stream is detected within a
+   couple of seconds, the UI reflects it (SRC badge + compass ring
+   colour), and Android streams are auto-resubscribed. */
+function watchdogTick(){
+  const now = Date.now();
+  const sinceValid = S.lastValidOriTime ? now-S.lastValidOriTime : Infinity;
+  const sinceAnyOri = S.lastAnyOriTime ? now-S.lastAnyOriTime : Infinity;
+  const sinceMotion = S.lastMotionTime ? now-S.lastMotionTime : Infinity;
+  const stuck = S.lastAlphaChangeTime && (now-S.lastAlphaChangeTime) > STUCK_MS && sinceAnyOri < 3000;
+  const deadStream = sinceValid > STALE_MS && sinceMotion < 3000;
+  if(stuck || deadStream) resyncOrientation(false);
+  // Nothing at all 5 s after start: tell the user once, with the fix.
+  if(!S.lastAnyOriTime && !S.noSensorWarned && S.compassStart && now-S.compassStart > 5000){
+    S.noSensorWarned = true;
+    toast(S.sensorPerm==='denied' ? 'Motion sensors blocked — Chrome ⋮ › Settings › Site settings › Motion sensors'
+                                  : 'No compass data — tap the compass to retry','err');
+  }
+  fuseHeading(); updHUD(); updData();
+}
+
+/* rAF render loop — decouples the compass rose + map cone from event
+   cadence entirely, so they stay visibly live between sensor events
+   instead of only redrawing when one happens to fire. */
+let _lastFovDraw = 0;
+function visualLoop(ts){
+  S.dispAz = lerpAngle(S.dispAz, S.heading, 0.2);  // fused heading, so rose and map cone always agree
+  const crose = document.getElementById('crose');
+  if(crose) crose.style.transform = `rotate(${-S.dispAz}deg)`;
+  if(!_lastFovDraw || ts - _lastFovDraw > 120){ updFov(); _lastFovDraw = ts; }
+  paintCompassHealth();
+  requestAnimationFrame(visualLoop);
+}
+function paintCompassHealth(){
+  const ring = document.getElementById('compass-ring');
+  if(!ring) return;
+  ring.setAttribute('stroke', S.signalState==='OK' ? '#2a3d2a' : S.signalState==='STALE' ? 'var(--amber)' : 'var(--red)');
+}
+
+/* ── TILT GUIDE ──
+   Flood version: the green zone (40°–80° from straight down) is where the
+   crosshair point is reliable. Steeper is fine for depth shots at your feet;
+   flatter pushes the crosshair point far away, where a 2° tilt error moves
+   it by metres. */
+const AIM_OK_MIN = 40, AIM_OK_MAX = 80;
+function updTilt(){
+  const t=S.tilt, H=130;
+  const pct = Math.min(Math.max(t/90,0),1);
+  const oz = document.getElementById('tilt-zone');
+  const oTop=(AIM_OK_MIN/90)*H, oBot=(AIM_OK_MAX/90)*H;
+  oz.style.top=oTop+'px'; oz.style.height=(oBot-oTop)+'px';
+  const pinEl=document.getElementById('tilt-pin'), degEl=document.getElementById('tilt-deg'), lbl=document.getElementById('tilt-lbl');
+  pinEl.style.top=(pct*(H-4))+'px';
+  let cls='', txt;
+  if(S.lat && !calcFP()){ txt='SKY ✕'; cls='warn'; }
+  else if(t>=TILT_MAX){ txt='HORIZON'; cls='warn'; }
+  else if(t>AIM_OK_MAX){ txt='FAR'; cls='warn'; }
+  else if(t>=AIM_OK_MIN){ txt='✓ AIM'; cls='ok'; }
+  else txt='DOWN';
+  pinEl.className=cls; degEl.className=cls;
+  degEl.textContent=t+'°'; lbl.textContent=txt;
+}
+
+/* ── HUD ── */
+function updHUD(){
+  const $=id=>document.getElementById(id);
+  $('h-lat').textContent=S.lat?'LAT '+S.lat.toFixed(5):'LAT —';
+  $('h-lon').textContent=S.lon?'LON '+S.lon.toFixed(5):'LON —';
+  $('h-az').textContent='HDG '+Math.round(S.heading)+'° '+azLbl(S.heading);
+  $('h-src').textContent='SRC '+S.headingSrc;
+  const locked = S.acc && S.acc <= GPS_LOCK_THR;
+  const smpTxt = S.gpsSamples > 1 ? ` ×${S.gpsSamples}` : '';
+  $('h-acc').textContent = S.acc ? (locked ? '⊕ ' : '') + 'ACC ±'+S.acc.toFixed(1)+'m'+smpTxt : 'ACQUIRING…';
+  ['h-lat','h-lon','h-az','h-src','h-acc'].forEach(id=>$(id).classList.remove('warn','bad','dim'));
+  if(!S.lat){ $('h-lat').classList.add('dim'); $('h-lon').classList.add('dim'); }
+  if(!S.acc || S.acc>20) $('h-acc').classList.add('warn');
+  const srcCls = S.signalState==='LOST' ? 'bad' : (S.signalState==='STALE' ? 'warn' : null);
+  if(srcCls){ $('h-src').classList.add(srcCls); $('h-az').classList.add(srcCls); }
+  const gb=$('gps-btn');
+  if(!S.acc)        { gb.style.color='var(--muted)'; gb.style.borderColor=''; }
+  else if(S.acc<12) { gb.style.color='var(--ok)'; gb.style.borderColor='rgba(74,222,128,.5)'; }
+  else if(S.acc<25) { gb.style.color='var(--amber)'; gb.style.borderColor='var(--amber)'; }
+  else              { gb.style.color='var(--red)'; gb.style.borderColor='var(--red)'; }
+  updAimTag();
+}
+function updAimTag(){
+  const el=document.getElementById('aim-tag'); if(!el) return;
+  const a=calcAim();
+  if(!S.lat){ el.textContent='AIM — waiting for GPS'; el.className='warn'; return; }
+  if(!a){ el.textContent='AIM — at or above horizon'; el.className='warn'; return; }
+  el.textContent='AIM '+fmtM(a.dist)+' ±'+fmtM(a.unc);
+  el.className = a.unc>5 ? 'warn' : '';
+}
+const fmtM = m => (m<10 ? m.toFixed(1) : Math.round(m)) + ' m';
+
+/* ── DATA PANEL (live) ── */
+function updData(){
+  const set=(id,v)=>{const e=document.getElementById(id);if(!e)return;e.textContent=v||'—';e.classList.toggle('na',!v||v==='—');};
+  set('d-proj',S.proj.name||null);
+  set('d-notes',S.proj.notes||null);
+  set('d-start',S.proj.t?new Date(S.proj.t).toLocaleString():null);
+  set('d-lat',S.lat?S.lat.toFixed(7)+'°':null);
+  set('d-lon',S.lon?S.lon.toFixed(7)+'°':null);
+  set('d-acc',S.acc?'± '+S.acc.toFixed(1)+' m'+(S.acc<=GPS_LOCK_THR?' ⊕ LOCKED':''):null);
+  set('d-smp',S.gpsSamples>0?S.gpsSamples+' / '+GPS_BUF_MAX+' (drop-worst averaging)':null);
+  set('d-alt',S.alt?S.alt.toFixed(1)+' m':null);
+  set('d-az',Math.round(S.heading)+'° '+azLbl(S.heading)+'  ['+S.headingSrc+']');
+  set('d-sens',S.platform+' · perm '+S.sensorPerm+' · abs '+(S.absCount||0)+' · ori '+(S.oriCount||0));
+  set('d-tilt',S.tilt+'°'+(S.tilt>90?' — above horizon':(S.tilt>=TILT_MAX?' — at horizon':'')));
+  set('d-camh',S.camH.toFixed(2)+' m above ground / water');
+  const fp=calcFP();
+  set('d-fp',fp?fp.w.toFixed(1)+' × '+fp.d.toFixed(1)+' m'+(fp.farCapped?' (far edge clipped)':''):(S.lat?'— (aimed above horizon)':null));
+  const a=calcAim();
+  set('d-aim',a?fmtM(a.dist)+' ahead, ± '+fmtM(a.unc):(S.lat?'— (at/above horizon)':null));
+}
+function azLbl(a){return['N','NE','E','SE','S','SW','W','NW','N'][Math.round(a/45)%8];}
+
+/* ── FOOTPRINT (CropView v3.2 geometry, unchanged) ────────────────
+   H is the camera's height ABOVE GROUND / WATER (S.camH, ~1.5 m) — never
+   GPS altitude above sea level. Tilt is measured from nadir:
+     ground range r(t) = H·tan(t); half-width at r = sqrt(H²+r²)·tan(hfov/2).
+   The footprint is dropped only when the BOTTOM edge of the frame is at or
+   above the horizon cap; otherwise the far edge is clipped (farCapped). */
+const TILT_MAX = 85;
+function calcFP(){
+  if(!S.lat||!S.lon) return null;
+  const H = S.camH, t = S.tilt;
+  if(!isFinite(t)) return null;
+  const tr = t*Math.PI/180;
+  const hr = S.fov*Math.PI/180;
+  const vr = 2*Math.atan(Math.tan(hr/2)*(9/16));
+  const cap = TILT_MAX*Math.PI/180;
+  const tNear = Math.max(tr - vr/2, 0);
+  if(tNear >= cap) return null;
+  const tFar  = Math.min(tr + vr/2, cap);
+  const near = H*Math.tan(tNear);
+  const far  = H*Math.tan(tFar);
+  const gd   = H*Math.tan(Math.min(tr, cap));
+  const halfW = r => Math.sqrt(H*H + r*r)*Math.tan(hr/2);
+  return {near, far, gd, wNear:halfW(near)*2, wFar:halfW(far)*2, w: halfW(gd)*2, d: far - near, farCapped: (tr + vr/2) > cap};
+}
+function calcPoly(heading){            // → GeoJSON ring [[lon,lat],…]
+  if(!S.lat||!S.lon) return null;
+  const fp=calcFP(); if(!fp) return null;
+  const h = (heading===undefined) ? S.heading : heading;
+  const b=((h%360)+360)%360;
+  const at=(r,off)=>{
+    const c=geoDest(S.lat,S.lon,r,b);
+    const p= off===0 ? c : geoDest(c[0],c[1],Math.abs(off),b+(off>0?90:-90));
+    return [p[1],p[0]];
+  };
+  const nL=at(fp.near,-fp.wNear/2), nR=at(fp.near, fp.wNear/2);
+  const fL=at(fp.far, -fp.wFar/2),  fR=at(fp.far,  fp.wFar/2);
+  return [nL,fL,fR,nR,nL];
+}
+/* ── CROSSHAIR POINT (new in FloodView) ──
+   Where the centre of the frame meets the ground or water surface:
+   distance = H·tan(tilt) along the look direction. Only defined below the
+   horizon cap. 'unc' is a geometry-only ± (metres) for a 2° tilt error
+   (radial, H·sec²t·Δt) combined with a 10° heading error (sideways,
+   distance·tan 10°). Add the GPS accuracy on top for the full error. */
+function calcAim(heading){
+  if(!S.lat||!S.lon) return null;
+  const t=S.tilt; if(!isFinite(t) || t>=TILT_MAX) return null;
+  const H=S.camH, tr=t*D2R;
+  const dist=H*Math.tan(tr);
+  const radial=H/(Math.cos(tr)**2)*(2*D2R), side=dist*Math.tan(10*D2R);
+  const h=(heading===undefined)?S.heading:heading;
+  const p=geoDest(S.lat,S.lon,dist,h);
+  return {lat:p[0], lon:p[1], dist, unc:Math.hypot(radial,side)};
+}
+
+/* ── MAP ── */
+const OSM_URL='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', SAT_URL='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+function initMap(){
+  if(S.map) return;
+  S.map=L.map('map',{center:[20.5,78.9],zoom:5,zoomControl:true,attributionControl:false});
+  S.tile=L.tileLayer(OSM_URL,{maxZoom:20,maxNativeZoom:19}).addTo(S.map);
+  S.fpL=L.layerGroup().addTo(S.map);
+  S.edgeL=L.layerGroup().addTo(S.map);
+  S.capL=L.layerGroup().addTo(S.map);
+  S.map.on('move zoom',updFov);
+}
+function updMapPos(){
+  if(!S.lat||!S.lon||!S.map) return;
+  if(!S.umark){
+    const ico=L.divIcon({html:`<div style="width:14px;height:14px;background:#38bdf8;border-radius:50%;border:2px solid #fff;box-shadow:0 0 8px rgba(56,189,248,.7)"></div>`,iconSize:[14,14],iconAnchor:[7,7],className:''});
+    S.umark=L.marker([S.lat,S.lon],{icon:ico,interactive:false}).addTo(S.map);
+    if(!S.mapCentred){ S.map.setView([S.lat,S.lon],18); S.mapCentred=true; }
+  } else S.umark.setLatLng([S.lat,S.lon]);
+  updFov();
+}
+/* Live view cone (CropView v3.2): a fixed ~90 px wedge so the look direction
+   is always visible, the true footprint dashed, plus the crosshair point. */
+const CONE_PX = 90;
+function updFov(){
+  if(!S.map || !S.lat || !S.lon) return;
+  const mp = document.getElementById('map-panel');
+  if(mp && !mp.classList.contains('active')) return;
+  const h = S.dispAz;
+  const col = S.signalState==='OK' ? '#4cff72' : (S.signalState==='STALE' ? '#ffb347' : '#ff5c5c');
+  const mpp = 156543.03392*Math.cos(S.lat*Math.PI/180)/Math.pow(2, S.map.getZoom());
+  const len = Math.max(CONE_PX*mpp, 3);
+  const dest = (m,b)=>geoDest(S.lat,S.lon,m,b);
+  const cone = [[S.lat,S.lon]];
+  for(let i=0;i<=10;i++) cone.push(dest(len, h - S.fov/2 + S.fov*i/10));
+  const ray = [[S.lat,S.lon], dest(len*1.15, h)];
+  if(!S.coneL) S.coneL = L.polygon(cone,{color:col,weight:1,fillColor:col,fillOpacity:.22,interactive:false}).addTo(S.map);
+  else { S.coneL.setLatLngs(cone); S.coneL.setStyle({color:col,fillColor:col}); }
+  if(!S.rayL) S.rayL = L.polyline(ray,{color:col,weight:2,opacity:.95,interactive:false}).addTo(S.map);
+  else { S.rayL.setLatLngs(ray); S.rayL.setStyle({color:col}); }
+  const a = calcAim(h);
+  const aimCol = S.tags.edge ? EDGE_COL : '#ffffff';
+  if(a){
+    if(!S.aimL) S.aimL = L.circleMarker([a.lat,a.lon],{radius:5,color:aimCol,weight:2,fillColor:col,fillOpacity:.9,interactive:false}).addTo(S.map);
+    else { S.aimL.setLatLng([a.lat,a.lon]); S.aimL.setStyle({color:aimCol,fillColor:col}); }
+  } else if(S.aimL){ S.map.removeLayer(S.aimL); S.aimL=null; }
+  const c = calcPoly(h);
+  if(!c){ if(S.fovL){ S.map.removeLayer(S.fovL); S.fovL=null; } return; }
+  const ll = c.map(p=>[p[1],p[0]]);
+  if(!S.fovL) S.fovL = L.polygon(ll,{color:'#ffffff',weight:1.5,fillColor:col,fillOpacity:.35,dashArray:'3 3',interactive:false}).addTo(S.map);
+  else { S.fovL.setLatLngs(ll); S.fovL.setStyle({fillColor:col}); }
+}
+function centerMe(){if(S.lat&&S.lon)S.map.setView([S.lat,S.lon],18);else toast('Waiting for GPS…','err');}
+function toggleSat(){
+  S.sat=!S.sat; S.map.removeLayer(S.tile);
+  S.tile=L.tileLayer(S.sat?SAT_URL:OSM_URL,{maxZoom:20,maxNativeZoom:S.sat?18:19}).addTo(S.map);
+  document.getElementById('map').classList.toggle('sat',S.sat);
+  document.getElementById('sat-btn').style.color=S.sat?'var(--acc)':'';
+  toast(S.sat?'Satellite imagery':'Street map','ok');
+}
+let fpVisible=true;
+function toggleFootprints(){
+  fpVisible=!fpVisible;
+  if(fpVisible) S.map.addLayer(S.fpL); else S.map.removeLayer(S.fpL);
+  const b=document.getElementById('fp-toggle-btn');
+  b.textContent=fpVisible?'◧ FP ON':'◫ FP OFF'; b.style.color=fpVisible?'var(--amber)':'var(--muted)';
+}
+const clsCol = c => (FCLASS[c]&&FCLASS[c].col) || UNLABELLED_COL;
+/* Redraw all saved captures: footprint, observer pin, line to the crosshair
+   point, and the water-edge trace. Cheap enough to redo on every change. */
+function drawCaps(){
+  if(!S.map) return;
+  S.capL.clearLayers(); S.fpL.clearLayers(); S.edgeL.clearLayers();
+  const chrono=[...S.caps].reverse();
+  chrono.forEach(c=>{
+    const col=clsCol(c.cls);
+    if(c.poly) S.fpL.addLayer(L.polygon(c.poly.map(p=>[p[1],p[0]]),{color:col,weight:1.2,fillColor:col,fillOpacity:.16,interactive:false}));
+    if(c.aim && c.aim.dist>0.5){
+      S.capL.addLayer(L.polyline([[c.lat,c.lon],[c.aim.lat,c.aim.lon]],{color:col,weight:1.5,opacity:.8,dashArray:'2 3',interactive:false}));
+      S.capL.addLayer(L.circleMarker([c.aim.lat,c.aim.lon],{radius:3.5,color:c.edge?EDGE_COL:'#fff',weight:c.edge?2:1,fillColor:col,fillOpacity:1,interactive:false}));
+    }
+    const m=L.circleMarker([c.lat,c.lon],{radius:7,color:c.edge?EDGE_COL:'#ffffff',weight:c.edge?3:2,fillColor:col,fillOpacity:.95});
+    m.bindPopup(()=>popupHTML(c),{maxWidth:240});
+    S.capL.addLayer(m);
+  });
+  edgeSegments(chrono).forEach(seg=>{
+    if(seg.length>1) S.edgeL.addLayer(L.polyline(seg,{color:EDGE_COL,weight:3,opacity:.9,dashArray:'6 4',interactive:false}));
+  });
+}
+/* Edge points in capture order, split where two consecutive edge points are
+   > 150 m or > 20 min apart (a new stretch of boundary, not one line). */
+const EDGE_GAP_M = 150, EDGE_GAP_MS = 20*60*1000;
+function edgePoint(c){ return c.aim ? [c.aim.lat,c.aim.lon] : [c.lat,c.lon]; }
+function edgeSegments(chrono){
+  const segs=[]; let cur=[], prev=null;
+  chrono.filter(c=>c.edge).forEach(c=>{
+    const p=edgePoint(c), t=Date.parse(c.timestamp);
+    if(prev && (geoDist(prev.p[0],prev.p[1],p[0],p[1])>EDGE_GAP_M || t-prev.t>EDGE_GAP_MS)){ segs.push(cur); cur=[]; }
+    cur.push(p); prev={p,t};
+  });
+  if(cur.length) segs.push(cur);
+  return segs;
+}
+function popupHTML(c){
+  const fc=FCLASS[c.cls];
+  return `<b style="color:${clsCol(c.cls)}">${fc?fc.icon+' '+fc.label:'Unlabelled'}</b>${c.edge?' <span style="color:#f9a8d4">· 〰 edge</span>':''}<br/>
+    ${new Date(c.timestamp).toLocaleString()}<br/>
+    ${tagSummary(c)||'<span style="color:#94a3b8">no tags</span>'}<br/>
+    <span style="color:#94a3b8">HDG ${c.az}° · tilt ${c.tilt}°${c.aim?' · aim '+fmtM(c.aim.dist):''}</span>`;
+}
+
+/* ── TAGS ── */
+function loadTags(){
+  try{ const t=JSON.parse(localStorage.getItem('fv_tags')||'null'); if(t) S.tags=Object.assign(S.tags,t); }catch(e){}
+  if(!Array.isArray(S.tags.land)) S.tags.land=[];
+  renderTagBar();
+}
+function saveTags(){ try{ localStorage.setItem('fv_tags',JSON.stringify(S.tags)); }catch(e){} }
+function depthText(k,cm){
+  if(cm!==null && cm!==undefined && cm!=='') return cm+' cm';
+  const d=findK(DEPTH,k); return d?d.short:null;
+}
+function renderTagBar(){
+  const t=S.tags;
+  const chip=(id,label,val)=>{ const el=document.getElementById(id); el.innerHTML=label+' <b>'+(val?esc(val):'—')+'</b>'; el.classList.toggle('set',!!val); };
+  chip('tc-depth','Depth',depthText(t.depth,t.depthCm));
+  chip('tc-flow','Flow',(findK(FLOW,t.flow)||{}).label);
+  chip('tc-trend','Trend',(findK(TREND,t.trend)||{}).label);
+  chip('tc-land','Flooded',t.land.length?(findK(LAND,t.land[0])||{label:t.land[0]}).label.replace(/^\S+\s/,'')+(t.land.length>1?' +'+(t.land.length-1):''):null);
+  const e=document.getElementById('tc-edge');
+  e.classList.toggle('on',!!t.edge); e.innerHTML='〰 Edge <b>'+(t.edge?'ON':'OFF')+'</b>';
+  document.body.classList.toggle('edge-on',!!t.edge);
+}
+function toggleEdge(){
+  S.tags.edge=!S.tags.edge; saveTags(); renderTagBar(); updFov();
+  toast(S.tags.edge?'Edge ON — put the crosshair on the waterline':'Edge OFF', S.tags.edge?'ok':'');
+}
+function tagSummary(c){
+  const p=[];
+  const d=depthText(c.depth,c.depthCm); if(d) p.push('depth '+d);
+  const f=findK(FLOW,c.flow); if(f) p.push(f.label.replace(' ⚠','')+' flow');
+  const tr=findK(TREND,c.trend); if(tr) p.push(tr.label);
+  if(c.land&&c.land.length) p.push(c.land.map(k=>(findK(LAND,k)||{label:k}).label.replace(/^\S+\s/,'')).join(', '));
+  return esc(p.join(' · '));
+}
+
+/* Tag sheet: edits the live (sticky) tags, or one saved capture. */
+let sheet = {mode:'live', cap:null, w:null};
+function openSheet(focus, capId){
+  const edit = !!capId;
+  const cap = edit ? S.caps.find(c=>c.id===capId) : null;
+  if(edit && !cap) return;
+  sheet = {mode: edit?'edit':'live', cap,
+    w: edit ? {cls:cap.cls, depth:cap.depth, depthCm:cap.depthCm, flow:cap.flow, trend:cap.trend, land:[...(cap.land||[])], edge:!!cap.edge, note:cap.note||''}
+            : S.tags};
+  document.getElementById('ts-title').textContent = edit ? 'Edit capture' : 'Tags for the next captures';
+  document.getElementById('ts-sub').textContent = edit
+    ? new Date(cap.timestamp).toLocaleString()+' · '+cap.id
+    : 'These ride along with every capture until you change them. Tap a selected option again to clear it.';
+  ['ts-cls-sec','ts-note-sec','ts-btns-edit'].forEach(id=>document.getElementById(id).style.display=edit?'':'none');
+  document.getElementById('ts-btns-live').style.display=edit?'none':'';
+  document.getElementById('ts-note').value = edit ? (cap.note||'') : '';
+  renderSheet();
+  document.getElementById('tag-ov').classList.add('on');
+  const sec=document.getElementById('ts-'+focus+'-sec');
+  if(sec) setTimeout(()=>sec.scrollIntoView({block:'nearest'}),30);
+}
+function closeSheet(){ document.getElementById('tag-ov').classList.remove('on'); }
+function renderSheet(){
+  const w=sheet.w;
+  const opt=(on,html,fn,extra='')=>`<div class="opt ${extra} ${on?'on':''}" onclick="${fn}">${html}</div>`;
+  document.getElementById('ts-cls').innerHTML = Object.entries(FCLASS).map(([k,v])=>
+    `<div class="opt cls ${w.cls===k?'on':''}" style="${w.cls===k?`background:${v.col};border-color:${v.col}`:''}" onclick="sheetSet('cls','${k}')">${v.icon} ${v.label}</div>`).join('');
+  document.getElementById('ts-depth').innerHTML = DEPTH.map(d=>opt(w.depth===d.k,`${d.label}<small>${d.range}</small>`,`sheetSet('depth','${d.k}')`)).join('');
+  const cmIn=document.getElementById('ts-depth-cm'); if(document.activeElement!==cmIn) cmIn.value = (w.depthCm ?? '');
+  document.getElementById('ts-flow').innerHTML = FLOW.map(f=>opt(w.flow===f.k,f.label,`sheetSet('flow','${f.k}')`,f.k==='fast'?'danger':'')).join('');
+  document.getElementById('ts-trend').innerHTML = TREND.map(f=>opt(w.trend===f.k,f.label,`sheetSet('trend','${f.k}')`)).join('');
+  document.getElementById('ts-land').innerHTML = LAND.map(f=>opt(w.land.includes(f.k),f.label,`sheetLand('${f.k}')`)).join('');
+  document.getElementById('ts-edge').checked = !!w.edge;
+}
+function sheetSet(field,k){
+  const w=sheet.w;
+  if(field==='cls'){ w.cls=k; }
+  else {
+    w[field] = (w[field]===k) ? null : k;
+    if(field==='depth') w.depthCm = null;
+  }
+  if(field==='flow' && w.flow==='fast' && sheet.mode==='live' && !S.fastWarned){ S.fastWarned=true; toast('⚠ Fast water: stay out of it and tag it from where you stand','err'); }
+  afterSheetChange();
+}
+function sheetLand(k){ const l=sheet.w.land, i=l.indexOf(k); if(i>=0) l.splice(i,1); else l.push(k); afterSheetChange(); }
+function sheetEdge(on){ sheet.w.edge=!!on; afterSheetChange(); }
+function sheetDepthCm(v){
+  const n = v==='' ? null : Math.max(0,Math.min(1000,Math.round(+v)));
+  sheet.w.depthCm = (n===null||isNaN(n)) ? null : n;
+  if(sheet.w.depthCm!==null) sheet.w.depth = depthClassFromCm(sheet.w.depthCm);
+  afterSheetChange();
+}
+function depthClassFromCm(cm){
+  if(cm<=0) return 'none'; if(cm<=20) return 'ankle'; if(cm<=60) return 'knee';
+  if(cm<=110) return 'waist'; if(cm<=150) return 'chest'; return 'above_head';
+}
+function afterSheetChange(){
+  renderSheet();
+  if(sheet.mode==='live'){ saveTags(); renderTagBar(); updFov(); }
+}
+async function saveEdit(){
+  const c=sheet.cap, w=sheet.w; if(!c) return;
+  Object.assign(c,{cls:w.cls, depth:w.depth, depthCm:w.depthCm, flow:w.flow, trend:w.trend, land:[...w.land], edge:!!w.edge,
+    note:document.getElementById('ts-note').value.trim(), edited:new Date().toISOString()});
+  await DB.putCap(c); await DB.putSession();
+  closeSheet(); rendList(); drawCaps(); toast('Capture updated','ok');
+}
+
+/* ── CAPTURE ──
+   One tap = photo + class. Everything the shot depends on (position,
+   heading, tilt, footprint, crosshair point, tags) is read synchronously
+   first, before any await, so the record matches the instant of the tap. */
+let _capBusy=false;
+async function doCapture(cls){
+  if(_capBusy) return;
+  if(!S.proj.name) return;
+  if(!S.lat||!S.lon){toast('No GPS fix yet — wait for LAT/LON','err');return;}
+  if(S.acc>30){toast('GPS too weak (±'+S.acc.toFixed(0)+' m) — move to open sky','err');return;}
+  const vid=document.getElementById('video');
+  if(!vid.videoWidth){ toast('Camera not ready yet','err'); return; }
+  _capBusy=true;
+  try{
+    const cv=document.getElementById('snap');
+    cv.width=vid.videoWidth; cv.height=vid.videoHeight;
+    cv.getContext('2d').drawImage(vid,0,0);
+    const now=new Date(), ms=now.getTime();
+    const fp=calcFP(), poly=calcPoly(), aim=calcAim();
+    const tb = travelBearing();
+    const rel = tb===null ? null : Math.round(((S.heading - tb + 540) % 360) - 180);
+    const t = S.tags;
+    const dry = cls==='dry';
+    const ts=now.toISOString().replace(/[-:T]/g,'').split('.')[0];
+    const la=S.lat.toFixed(5).replace('.','p'), lo=S.lon.toFixed(5).replace('.','p');
+    const id='FV-'+ms;
+    const cap={id, imgName:`${S.proj.name}_${id}_${ts}_${la}_${lo}`, timestamp:now.toISOString(), project:S.proj.name,
+      lat:S.lat, lon:S.lon, altitude:S.alt, accuracy:S.acc, az:Math.round(S.heading), headingSrc:S.headingSrc,
+      tilt:S.tilt, camH:S.camH, fov:S.fov,
+      travelBrg: tb===null ? null : Math.round(tb), lookRel: rel, lookSide: lookSide(rel),
+      fp: fp?{w:fp.w,d:fp.d,farCapped:!!fp.farCapped}:null, poly,
+      aim: aim?{lat:aim.lat,lon:aim.lon,dist:aim.dist,unc:aim.unc}:null,
+      cls,
+      // a dry point has no standing water, flow or trend by definition
+      depth: dry ? 'none' : t.depth, depthCm: dry ? null : t.depthCm,
+      flow: dry ? null : t.flow, trend: dry ? null : t.trend,
+      land:[...t.land], edge:!!t.edge, note:'', thumb:null};
+    const fl=document.getElementById('flash');
+    fl.style.background=FCLASS[cls].col; fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
+    cap.thumb = makeThumb(cv);
+    const blob = await new Promise(r=>cv.toBlob(r,'image/jpeg',.85));
+    await DB.putPhoto(id, blob);
+    await DB.putCap(cap);
+    S.caps.unshift(cap);
+    await DB.putSession();
+    drawCaps(); rendList();
+    const warn = !fp ? ' · no footprint (above horizon)' : (S.signalState==='LOST' ? ' · ⚠ no compass fix' : (S.acc>GPS_LOCK_THR?' · weak GPS':''));
+    toast(FCLASS[cls].icon+' '+FCLASS[cls].label+(cap.edge?' · edge':'')+' saved'+warn, warn?'':'ok');
+  }catch(e){
+    console.error(e); toast('Capture failed: '+e.message,'err');
+  }finally{ _capBusy=false; }
+}
+function makeThumb(src){
+  const W=320, H=Math.round(src.height*W/src.width)||180;
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  c.getContext('2d').drawImage(src,0,0,W,H);
+  return c.toDataURL('image/jpeg',.62);
+}
+
+/* ── LIST ── */
+function rendList(){
+  const el=document.getElementById('cap-list');
+  const n=S.caps.length;
+  document.getElementById('cc2').textContent=n;
+  document.getElementById('cap-badge').textContent=n+' cap';
+  const count=k=>S.caps.filter(c=>c.cls===k).length;
+  document.getElementById('n-fl').textContent=count('flooded');
+  document.getElementById('n-wl').textContent=count('waterlogged');
+  document.getElementById('n-dr').textContent=count('dry');
+  document.getElementById('n-edge').textContent=S.caps.filter(c=>c.edge).length;
+  if(!n){el.innerHTML=`<div class="es"><div style="font-size:34px">🌊</div>No captures yet.<br/>Aim and tap a class button on the Capture tab.</div>`;return;}
+  el.innerHTML=S.caps.map(c=>{
+    const fc=FCLASS[c.cls], col=clsCol(c.cls);
+    return `<div class="ci" style="border-left-color:${col}">
+      <img class="cthumb" src="${c.thumb||''}" alt=""/>
+      <div class="cmeta">
+        <div class="ctop"><span class="cls-pill" style="background:${col}">${fc?fc.icon+' '+fc.label.toUpperCase():'UNLABELLED'}</span>${c.edge?'<span class="edge-pill">〰 EDGE</span>':''}<span class="cid">${new Date(c.timestamp).toLocaleTimeString()}</span></div>
+        <div class="cdet">
+          ${tagSummary(c)?'<b>'+tagSummary(c)+'</b><br/>':''}
+          ${c.lat.toFixed(5)}, ${c.lon.toFixed(5)} · ±${(c.accuracy||0).toFixed(0)} m<br/>
+          HDG ${c.az}° ${azLbl(c.az)} · tilt ${c.tilt}°${c.aim?' · aim '+fmtM(c.aim.dist):''}
+          ${c.note?'<br/>📝 '+esc(c.note):''}
+        </div>
+        <div class="cact">
+          <span class="chip g" onclick="jumpMap('${c.id}')">MAP</span>
+          <span class="chip g" onclick="openSheet('cls','${c.id}')">EDIT</span>
+          <span class="chip" onclick="dlCap('${c.id}')">SAVE PHOTO</span>
+          <span class="chip" onclick="delCap('${c.id}')">DEL</span>
+        </div>
+      </div>
+    </div>`;}).join('');
+  updStoreInfo();
+}
+function jumpMap(id){const c=S.caps.find(x=>x.id===id); if(!c) return; switchTab('map');setTimeout(()=>S.map.setView([c.lat,c.lon],19),120);}
+async function dlCap(id){
+  const c=S.caps.find(x=>x.id===id); if(!c) return;
+  const b=await DB.getPhoto(id); if(!b){ toast('Photo not found on this phone','err'); return; }
+  dlBlob(b,c.imgName+'.jpg');
+}
+async function delCap(id){
+  if(!confirm('Delete this capture and its photo?')) return;
+  S.caps=S.caps.filter(c=>c.id!==id);
+  await DB.delCap(id); await DB.putSession();
+  rendList(); drawCaps(); toast('Deleted');
+}
+function updateCamH(){
+  const v=parseFloat(document.getElementById('camh-edit').value);
+  if(!isFinite(v)||v<0.2||v>60){ toast('Camera height must be 0.2–60 m','err'); return; }
+  S.camH=v; DB.putSession(); updData(); updFov(); updHUD();
+  toast('Camera height '+v.toFixed(2)+' m — applies to new captures','ok');
+}
+
+/* ── EXPORTS ──
+   File names and property names follow CropView where the meaning is the
+   same, so the CropView Data Explorer can read a FloodView ZIP as well. */
+function capProps(c){
+  const fc=FCLASS[c.cls];
+  const dObj=findK(DEPTH,c.depth);
+  const measured = c.depthCm!==null && c.depthCm!==undefined && c.depthCm!=='';
+  return {id:c.id, imgName:c.imgName+'.jpg', timestamp:c.timestamp, project:c.project,
+    flood_class:c.cls||null, flood_class_label:fc?fc.label:null,
+    water_depth_class:c.depth||null,
+    water_depth_cm: measured ? +c.depthCm : (dObj?dObj.cm:null),
+    water_depth_source: measured ? 'measured' : (!dObj ? null : (c.cls==='dry' && c.depth==='none') ? 'dry_class' : 'body_scale'),
+    flow:c.flow||null, level_trend:c.trend||null,
+    flooded_land_cover:(c.land&&c.land.length)?c.land.join(';'):null,
+    water_edge:!!c.edge, note:c.note||null,
+    heading_deg:c.az, azimuth_deg:c.az, heading_source:c.headingSrc||null,
+    tilt_deg_from_nadir:c.tilt, tilt_deg:c.tilt, camera_height_m:c.camH??null,
+    hfov_deg:c.fov, gps_accuracy_m:c.accuracy,
+    aim_lat:c.aim?+c.aim.lat.toFixed(8):null, aim_lon:c.aim?+c.aim.lon.toFixed(8):null,
+    aim_dist_m:c.aim?+c.aim.dist.toFixed(2):null, aim_uncertainty_m:c.aim?+c.aim.unc.toFixed(2):null,
+    footprint_width_m:c.fp?.w||null, footprint_depth_m:c.fp?.d||null, footprint_far_capped:c.fp?.farCapped??null,
+    travel_bearing_deg:c.travelBrg??null, look_rel_travel_deg:c.lookRel??null, look_side:c.lookSide??null,
+    edited:c.edited||null};
+}
+function meta(extra){
+  return Object.assign({app:'FloodView',version:APP_VERSION,project:S.proj.name,notes:S.proj.notes,session_started:S.proj.t,
+    exported:new Date().toISOString(),captures:S.caps.length}, extra||{});
+}
+function chrono(){ return [...S.caps].reverse(); }
+function buildGJ(){
+  return{type:'FeatureCollection', metadata:meta(),
+    features:chrono().map(c=>({type:'Feature',
+      geometry:{type:'Point',coordinates:[c.lon,c.lat,c.altitude||0]},
+      properties:capProps(c),
+      ...(c.poly?{fov_polygon:{type:'Polygon',coordinates:[c.poly]}}:{})}))};
+}
+function buildFootprintsGJ(){
+  const features=chrono().filter(c=>c.poly&&c.poly.length).map(c=>({type:'Feature',
+    geometry:{type:'Polygon',coordinates:[c.poly]},
+    properties:Object.assign(capProps(c),{capture_lat:c.lat,capture_lon:c.lon})}));
+  return{type:'FeatureCollection', metadata:meta({description:'Ground footprint of each photo (camera field of view projected on the ground or water surface). Use for sampling satellite pixels.',total:features.length}), features};
+}
+function buildEdgeGJ(){
+  const ch=chrono(), edges=ch.filter(c=>c.edge);
+  const pts=edges.map(c=>{const p=edgePoint(c); return {type:'Feature',geometry:{type:'Point',coordinates:[p[1],p[0]]},
+    properties:Object.assign(capProps(c),{edge_from:c.aim?'crosshair':'observer'})};});
+  const lines=edgeSegments(ch).filter(s=>s.length>1).map((s,i)=>({type:'Feature',
+    geometry:{type:'LineString',coordinates:s.map(p=>[p[1],p[0]])},
+    properties:{segment:i+1,points:s.length,description:'Water edge traced in capture order'}}));
+  return{type:'FeatureCollection', metadata:meta({description:'Water-edge markers (at the crosshair point, or the observer if the camera was at the horizon) and the traced edge lines. A new line starts after a gap of more than '+EDGE_GAP_M+' m or '+(EDGE_GAP_MS/60000)+' min.',edge_points:pts.length,edge_lines:lines.length}),
+    features:[...lines,...pts]};
+}
+function csvCell(v){ if(v===null||v===undefined) return ''; const s=String(v); return /[",\n;]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+function buildCSV(){
+  const cols=['id','imgName','timestamp','project','lat','lon','altitude','gps_accuracy_m','flood_class','water_depth_class','water_depth_cm','water_depth_source','flow','level_trend','flooded_land_cover','water_edge','note','heading_deg','heading_source','tilt_deg_from_nadir','camera_height_m','hfov_deg','aim_lat','aim_lon','aim_dist_m','aim_uncertainty_m','footprint_width_m','footprint_depth_m','travel_bearing_deg','look_side','edited'];
+  const rows=chrono().map(c=>{const p=capProps(c); p.lat=c.lat; p.lon=c.lon; p.altitude=c.altitude; return cols.map(k=>csvCell(p[k])).join(',');});
+  return [cols.join(','),...rows].join('\n');
+}
+function readme(){
+  const count=k=>S.caps.filter(c=>c.cls===k).length;
+  return [
+    'FloodView Export · '+S.proj.name,
+    '═══════════════════════════════════════',
+    'Notes:     '+(S.proj.notes||'—'),
+    'Started:   '+(S.proj.t||'—'),
+    'Exported:  '+new Date().toISOString(),
+    'Captures:  '+S.caps.length+'  (flooded '+count('flooded')+', waterlogged '+count('waterlogged')+', dry '+count('dry')+', water-edge '+S.caps.filter(c=>c.edge).length+')',
+    '',
+    'images/  photos named {Survey}_{ID}_{UTC timestamp}_{lat}_{lon}.jpg',
+    'data/    *_captures_points.geojson      one point per photo (observer position) with all tags',
+    '         *_captures_footprints.geojson  ground footprint polygon of each photo',
+    '         *_water_edge.geojson           water-edge points and traced edge lines',
+    '         *_captures.csv                 the same records as a table',
+    '',
+    'Key fields',
+    '  flood_class         flooded | waterlogged | dry',
+    '  water_depth_class   none | ankle | knee | waist | chest | above_head (body-scale estimate)',
+    '  water_depth_cm      measured value, or the class midpoint (see water_depth_source)',
+    '  flow                still | slow | fast;   level_trend  rising | steady | receding',
+    '  flooded_land_cover  ;-separated: cropland, road, settlement, open_land, vegetation, water_body',
+    '  water_edge          true = marks the flood boundary',
+    '  heading_deg         camera look direction, clockwise from true north',
+    '  tilt_deg_from_nadir 0 = straight down, 90 = horizon',
+    '  aim_lat / aim_lon   where the crosshair met the ground or water (camera_height_m · tan tilt ahead)',
+    '  aim_uncertainty_m   geometry-only ± for 2° tilt and 10° heading error; add gps_accuracy_m',
+    '',
+    'Open the ZIP in the FloodView Explorer: https://somdeepkundu.github.io/floodview/explorer.html',
+    '',
+    'FloodView '+APP_VERSION+' · Somdeep Kundu · RuDRA Lab · C-TARA · IIT Bombay',
+    'https://somdeepkundu.github.io · © 2026 · MIT License',
+  ].join('\n');
+}
+async function buildZipBlob(){
+  const zip=new JSZip(), pn=S.proj.name||'FloodView';
+  const imgs=zip.folder('images'), data=zip.folder('data');
+  let missing=0;
+  for(const c of S.caps){ const b=await DB.getPhoto(c.id); if(b) imgs.file(c.imgName+'.jpg',b,{binary:true}); else missing++; }
+  data.file(pn+'_captures_points.geojson',JSON.stringify(buildGJ(),null,2));
+  data.file(pn+'_captures_footprints.geojson',JSON.stringify(buildFootprintsGJ(),null,2));
+  data.file(pn+'_water_edge.geojson',JSON.stringify(buildEdgeGJ(),null,2));
+  data.file(pn+'_captures.csv',buildCSV());
+  zip.file('README.txt',readme());
+  const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
+  return {blob, name:pn+'_FloodView_'+new Date().toISOString().split('T')[0]+'.zip', missing};
+}
+async function doZIP(share){
+  if(!S.caps.length){toast('No captures','err');return;}
+  if(typeof JSZip==='undefined'){toast('ZIP library not loaded','err');return;}
+  toast('Building ZIP…');
+  try{
+    const z=await buildZipBlob();
+    if(z.missing) toast(z.missing+' photo(s) were missing on this phone — exported without them','err');
+    if(share){
+      const f=new File([z.blob],z.name,{type:'application/zip'});
+      if(navigator.canShare && navigator.canShare({files:[f]})){ await navigator.share({files:[f],title:z.name}); return; }
+      toast('Sharing files is not supported here — downloading instead','err');
+    }
+    dlBlob(z.blob,z.name);
+    if(!z.missing) toast('ZIP exported ✓','ok');
+  }catch(e){ if(e && e.name==='AbortError') return; console.error(e); toast('Export failed: '+e.message,'err'); }
+}
+function doGeoJSON(){if(!S.caps.length){toast('No captures','err');return;}dlBlob(JSON.stringify(buildGJ(),null,2),S.proj.name+'_points_'+Date.now()+'.geojson','application/geo+json');toast('Points GeoJSON exported','ok');}
+function doFootprintsGJ(){if(!S.caps.length){toast('No captures','err');return;}dlBlob(JSON.stringify(buildFootprintsGJ(),null,2),S.proj.name+'_footprints_'+Date.now()+'.geojson','application/geo+json');toast('Footprints GeoJSON exported','ok');}
+function doEdgeGJ(){if(!S.caps.some(c=>c.edge)){toast('No water-edge captures yet','err');return;}dlBlob(JSON.stringify(buildEdgeGJ(),null,2),S.proj.name+'_water_edge_'+Date.now()+'.geojson','application/geo+json');toast('Water-edge GeoJSON exported','ok');}
+function doCSV(){if(!S.caps.length){toast('No captures','err');return;}dlBlob(buildCSV(),S.proj.name+'_'+Date.now()+'.csv','text/csv');toast('CSV exported','ok');}
+function dlBlob(c,n,t){const b=c instanceof Blob?c:new Blob([c],{type:t}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=n;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);}
+async function doClear(){
+  if(!S.caps.length){ toast('Nothing to delete'); return; }
+  if(!confirm('Delete all '+S.caps.length+' captures and photos of "'+S.proj.name+'" from this phone? Export a ZIP first if you need them.')) return;
+  for(const c of S.caps) await DB.delCap(c.id);
+  S.caps=[]; await DB.putSession();
+  rendList(); drawCaps(); toast('Survey cleared from this phone');
+}
+
+/* ── STORAGE (IndexedDB) ──
+   Full-resolution photos are kept as Blobs in IndexedDB, so they survive a
+   reload, a closed tab or a dead battery; export a ZIP whenever convenient.
+   If IndexedDB is unavailable (some private windows) everything stays in
+   memory and the app warns to export before closing. */
+const DB = {
+  db:null, mem:false, memCaps:{}, memSess:{},
+  async open(){
+    try{
+      if(!('indexedDB' in window)) throw new Error('no IndexedDB');
+      DB.db = await new Promise((res,rej)=>{
+        const r=indexedDB.open('floodview',1);
+        r.onupgradeneeded=()=>{ const d=r.result;
+          if(!d.objectStoreNames.contains('caps')) d.createObjectStore('caps',{keyPath:'id'}).createIndex('project','project');
+          if(!d.objectStoreNames.contains('photos')) d.createObjectStore('photos');
+          if(!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions',{keyPath:'name'});
+        };
+        r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); r.onblocked=()=>rej(new Error('blocked'));
+      });
+      try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
+    }catch(e){ DB.mem=true; console.warn('IndexedDB unavailable, using memory',e); }
+  },
+  req(store,mode,fn){
+    return new Promise((res,rej)=>{ const tx=DB.db.transaction(store,mode); const r=fn(tx.objectStore(store));
+      tx.oncomplete=()=>res(r&&r.result); tx.onerror=()=>rej(tx.error); tx.onabort=()=>rej(tx.error||new Error('aborted')); });
+  },
+  async putCap(c){ if(DB.mem){ DB.memCaps[c.id]=c; return; } await DB.req('caps','readwrite',s=>s.put(c)); },
+  async delCap(id){ if(DB.mem){ delete DB.memCaps[id]; delete S.memPhotos[id]; return; }
+    await DB.req('caps','readwrite',s=>s.delete(id)); await DB.req('photos','readwrite',s=>s.delete(id)); },
+  async putPhoto(id,b){ if(DB.mem){ S.memPhotos[id]=b; return; } await DB.req('photos','readwrite',s=>s.put(b,id)); },
+  async getPhoto(id){ if(DB.mem) return S.memPhotos[id]||null; return (await DB.req('photos','readonly',s=>s.get(id)))||null; },
+  async capsFor(project){ if(DB.mem) return Object.values(DB.memCaps).filter(c=>c.project===project);
+    return (await DB.req('caps','readonly',s=>s.index('project').getAll(project)))||[]; },
+  async putSession(){
+    if(!S.proj.name) return;
+    const s={name:S.proj.name,notes:S.proj.notes,camH:S.camH,started:S.proj.t,updated:new Date().toISOString(),count:S.caps.length};
+    if(DB.mem){ DB.memSess[s.name]=s; return; }
+    try{ await DB.req('sessions','readwrite',st=>st.put(s)); }catch(e){}
+  },
+  async getSession(name){ if(DB.mem) return DB.memSess[name]||null; try{ return (await DB.req('sessions','readonly',s=>s.get(name)))||null; }catch(e){ return null; } },
+  async listSessions(){
+    if(DB.mem) return Object.values(DB.memSess);
+    try{ const a=(await DB.req('sessions','readonly',s=>s.getAll()))||[]; return a.filter(s=>s.count>0).sort((x,y)=>(y.updated||'').localeCompare(x.updated||'')); }catch(e){ return []; }
+  }
+};
+async function loadCaps(){
+  S.caps=(await DB.capsFor(S.proj.name)).sort((a,b)=>b.timestamp.localeCompare(a.timestamp));
+  rendList(); drawCaps();
+  if(S.caps.length && S.map){ const c=S.caps[0]; S.map.setView([c.lat,c.lon],18); S.mapCentred=true; }
+  if(DB.mem) toast('Phone storage unavailable — export a ZIP before closing','err');
+}
+async function updStoreInfo(){
+  let t = DB.mem ? 'in memory only — export before closing' : S.caps.length+' captures with photos';
+  try{ if(!DB.mem && navigator.storage && navigator.storage.estimate){ const e=await navigator.storage.estimate(); t+=' · '+(e.usage/1048576).toFixed(1)+' MB used'; } }catch(e){}
+  const el=document.getElementById('d-store'); if(el){ el.textContent=t; el.style.color=DB.mem?'var(--red)':''; }
+}
+
+/* ── GPS STATUS MODAL ── */
+const gpsHistory = [];
+function openGPS(){ document.getElementById('gps-ov').classList.add('on'); updGPSModal(); }
+function closeGPS(){ document.getElementById('gps-ov').classList.remove('on'); }
+function recordGPSHistory(acc){
+  gpsHistory.push(acc); if(gpsHistory.length > 10) gpsHistory.shift();
+  if(document.getElementById('gps-ov').classList.contains('on')) updGPSModal();
+}
+function updGPSModal(){
+  const acc=S.acc, alt=S.alt, altAcc=S.altAcc||null;
+  const pct = acc ? Math.max(0, 1 - Math.min(acc, 100) / 100) : 0;
+  const ringEl = document.getElementById('ring-fill');
+  ringEl.style.strokeDashoffset = 327 - pct*327;
+  ringEl.style.stroke = !acc ? '#94a3b8' : acc < 5 ? '#4ade80' : acc < 15 ? '#fbbf24' : '#f87171';
+  document.getElementById('ring-acc-val').textContent = acc ? acc.toFixed(1) : '—';
+  const badge=document.getElementById('fix-badge');
+  if(!acc){ badge.textContent='NO FIX'; badge.className=''; }
+  else if(acc < 5) { badge.textContent='EXCELLENT FIX'; badge.className='good'; }
+  else if(acc < 12){ badge.textContent='GOOD FIX'; badge.className='good'; }
+  else if(acc < 25){ badge.textContent='FAIR FIX'; badge.className='ok'; }
+  else { badge.textContent='POOR FIX'; badge.className='poor'; }
+  const quality = !acc ? null : acc<6?'Excellent':acc<12?'Good':acc<25?'Fair':acc<50?'Poor':'Very poor';
+  const setGV=(id,val,warn)=>{const el=document.getElementById(id); if(!el) return; el.textContent=val||'—'; el.className='gv'+(warn?' warn':'')+(!val?' na':'');};
+  setGV('g-acc', acc?'± '+acc.toFixed(1)+' m':null, acc>20);
+  setGV('g-altacc', altAcc?'± '+altAcc.toFixed(1)+' m':'not available');
+  setGV('g-quality', quality, acc>20);
+  setGV('g-smp', S.gpsSamples?S.gpsSamples+' of last '+GPS_BUF_MAX:null);
+  setGV('g-alt', alt?alt.toFixed(1)+' m':null);
+  setGV('g-time', S.lastGPSTime?new Date(S.lastGPSTime).toLocaleTimeString():null);
+  const hist=document.getElementById('acc-history');
+  if(gpsHistory.length){
+    const maxH=Math.max(...gpsHistory,1);
+    hist.innerHTML=gpsHistory.map(v=>`<div style="flex:1;border-radius:2px;height:${Math.max(4,(v/maxH)*34)}px;background:${v<10?'#4ade80':v<25?'#fbbf24':'#f87171'}"></div>`).join('');
+  }
+}
+
+/* ── ABOUT ── */
+function openAbout(){document.getElementById('about-ov').classList.add('on');}
+function closeAbout(){document.getElementById('about-ov').classList.remove('on');}
+
+/* ── HELPERS ── */
+function switchTab(n){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===n));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===n+'-panel'));
+  if(n==='map'&&S.map){setTimeout(()=>{
+    S.map.invalidateSize();
+    if(S.lat && (!S.mapCentred || !S.map.getBounds().contains([S.lat,S.lon]))){ S.map.setView([S.lat,S.lon],Math.max(S.map.getZoom(),17)); S.mapCentred=true; }
+    updFov();
+  },50);}
+  if(n==='data'){ updData(); updStoreInfo(); }
+}
+function setDot(t){const d=document.getElementById('status-dot');d.className='';if(t)d.classList.add(t);}
+let tt;
+function toast(m,t=''){const e=document.getElementById('toast');e.textContent=m;e.className=t?'show '+t:'show';clearTimeout(tt);tt=setTimeout(()=>e.className='',3000);}
+function esc(s){return String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+function fitHeader(){ const h=document.getElementById('header').offsetHeight; document.documentElement.style.setProperty('--hdr-h',h+'px'); }
+
+/* ── BOOT ── */
+(function(){ try{ const m=navigator.deviceMemory; if(m&&m<=2) document.documentElement.classList.add('g-lite'); }catch(e){} })();
+fitHeader(); window.addEventListener('resize',fitHeader);
+if(navigator.canShare){ try{ if(navigator.canShare({files:[new File(['x'],'t.zip',{type:'application/zip'})]})) document.getElementById('share-btn').style.display=''; }catch(e){} }
+loadTags(); updTilt();
+DB.ready = DB.open();
+/* Offline: a service worker keeps the app, its libraries and the map tiles
+   you have already looked at, so it opens and works without a network. */
+(function(){
+  const el=document.getElementById('offline-state');
+  if(!('serviceWorker' in navigator)){ el.textContent='Offline mode not supported in this browser'; return; }
+  navigator.serviceWorker.register('sw.js').then(()=>navigator.serviceWorker.ready).then(()=>{
+    el.textContent='✓ Ready to work offline'; el.className='ok';
+  }).catch(()=>{ el.textContent='Offline mode unavailable (needs https)'; });
+})();
+</script>
+</body>
+</html>
