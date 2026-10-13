@@ -2,6 +2,11 @@
 
 The capture app (`index.html`) and the Explorer (`explorer.html`) share one version number, set in `package.json` and in `sw.js`.
 
+## 1.0.1 — 2026-10-13
+
+### Changed
+- Explorer: satellite imagery (Esri World Imagery) is now the default basemap on the map, the Review map and the photo viewer's mini-map, so standing water shows under the points. Voyager and OpenStreetMap are still in the layer switcher.
+
 ## 1.0.0 — 2026-10-13
 
 First release.

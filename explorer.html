@@ -488,7 +488,7 @@ table.an-table tr.an-row.focus{box-shadow:inset 3px 0 0 var(--acc)}
    (multi-ZIP loading, legend bar, point fan-out, lightbox with zoom),
    reworked around flood class, depth, flow, trend, crosshair points and
    water edges, with a review workflow that keeps the original field labels. */
-const APP_VERSION='1.0.0';
+const APP_VERSION='1.0.1';
 let captures=[];            // every point from every ZIP / import
 let batches=[];             // {id,name,fileName,count,imgCount,app}
 let nextBatchId=1;
@@ -509,6 +509,9 @@ const LANDL={cropland:'Cropland',road:'Road',settlement:'Settlement',open_land:'
 const EDGE_GAP_M=150, EDGE_GAP_MS=20*60*1000;   // same rule as the capture app
 
 const CARTO_URL='https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+// Default basemap (v1.0.1): Esri World Imagery, so standing water and flood extent are visible under the points
+const SAT_URL='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', SAT_ATTR='Esri, Maxar, Earthstar Geographics';
+const satLayer=()=>L.tileLayer(SAT_URL,{attribution:SAT_ATTR,maxZoom:20,maxNativeZoom:18});
 const CARTO_ATTR='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>';
 let arrowLen=40, arrowHead=.2;
 let isDark=true, mapReady=false;
@@ -806,9 +809,9 @@ function initMap(fit){
     theMap=L.map('map',{zoomControl:true}).setView([20.5,78.9],5);
     const voyager=L.tileLayer(CARTO_URL,{attribution:CARTO_ATTR,maxZoom:20});
     const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:20,maxNativeZoom:19});
-    const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Esri, Maxar, Earthstar Geographics',maxZoom:20,maxNativeZoom:18});
-    voyager.addTo(theMap);
-    L.control.layers({'🗺️ Voyager':voyager,'🗺️ OpenStreetMap':osm,'🛰️ Satellite':sat},null,{position:'topleft',collapsed:true}).addTo(theMap);
+    const sat=satLayer();
+    sat.addTo(theMap); document.getElementById('map-wrap').classList.add('sat-on');
+    L.control.layers({'🛰️ Satellite':sat,'🗺️ Voyager':voyager,'🗺️ OpenStreetMap':osm},null,{position:'topleft',collapsed:true}).addTo(theMap);
     theMap.on('baselayerchange',e=>document.getElementById('map-wrap').classList.toggle('sat-on',e.layer===sat));
     gFP=L.layerGroup().addTo(theMap); gCone=L.layerGroup().addTo(theMap); gPath=L.layerGroup().addTo(theMap);
     gArrow=L.layerGroup().addTo(theMap); gAim=L.layerGroup().addTo(theMap); gEdge=L.layerGroup().addTo(theMap); gPts=L.layerGroup().addTo(theMap);
@@ -1096,7 +1099,10 @@ function dismissRestore(){ document.getElementById('restore-banner').style.displ
 function initAnnotMap(){
   if(annotMap) return;
   annotMap=L.map('an-map',{zoomControl:true}).setView([20.5,78.9],5);
-  L.tileLayer(CARTO_URL,{attribution:CARTO_ATTR,maxZoom:20}).addTo(annotMap);
+  const sat=satLayer().addTo(annotMap), voy=L.tileLayer(CARTO_URL,{attribution:CARTO_ATTR,maxZoom:20});
+  const box=document.getElementById('an-map'); box.classList.add('sat-on');
+  L.control.layers({'🛰️ Satellite':sat,'🗺️ Voyager':voy},null,{position:'topright',collapsed:true}).addTo(annotMap);
+  annotMap.on('baselayerchange',e=>box.classList.toggle('sat-on',e.layer===sat));
   annotLayer=L.layerGroup().addTo(annotMap);
   annotMap.on('dragstart zoomstart',()=>{ annotMap._userMoved=true; });
 }
@@ -1237,7 +1243,7 @@ function renderLightbox(){
 function initLBMini(){
   if(lbMiniMap) return;
   lbMiniMap=L.map('lb-mini',{zoomControl:false,attributionControl:false,scrollWheelZoom:false});
-  L.tileLayer(CARTO_URL,{maxZoom:20}).addTo(lbMiniMap);
+  satLayer().addTo(lbMiniMap); document.getElementById('lb-mini').classList.add('sat-on');
   lbMiniLayer=L.layerGroup().addTo(lbMiniMap);
 }
 function updateLBMini(c){

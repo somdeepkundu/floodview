@@ -1,6 +1,6 @@
 {
   "name": "floodview",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "FloodView — geo-tagged flood ground truthing (capture app + Explorer). Static site for GitHub Pages; no build step.",
   "homepage": "https://somdeepkundu.github.io/floodview/",
