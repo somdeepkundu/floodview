@@ -354,6 +354,9 @@ table.an-table tr.an-row.focus{box-shadow:inset 3px 0 0 var(--acc)}
               <option value="depth">Water depth</option>
               <option value="flow">Flow</option>
               <option value="trend">Water level trend</option>
+              <option value="wasflooded">Was it flooded? (both surveys)</option>
+              <option value="severity">Damage: how bad</option>
+              <option value="phase">During / after flood</option>
               <option value="time">Capture time</option>
               <option value="batch">Survey / set</option>
               <option value="azimuth">Look direction</option>
@@ -394,6 +397,8 @@ table.an-table tr.an-row.focus{box-shadow:inset 3px 0 0 var(--acc)}
             <div class="sc"><div class="sk">🌊 Flooded</div><div class="sv" id="st-fl" style="color:#60a5fa">—</div></div>
             <div class="sc"><div class="sk">💧 Waterlogged</div><div class="sv" id="st-wl" style="color:#2dd4bf">—</div></div>
             <div class="sc"><div class="sk">☀️ Dry</div><div class="sv" id="st-dr" style="color:#fbbf24">—</div></div>
+            <div class="sc"><div class="sk">📏 Flood marks</div><div class="sv" id="st-mark" style="color:#c084fc">—</div></div>
+            <div class="sc"><div class="sk">🏚 Damage reports</div><div class="sv" id="st-dmg" style="color:#f87171">—</div></div>
             <div class="sc"><div class="sk">〰 Edge points</div><div class="sv" id="st-edge" style="color:#f472b6">—</div></div>
             <div class="sc"><div class="sk">Deepest</div><div class="sv" id="st-depth">—</div></div>
             <div class="sc"><div class="sk">Time span</div><div class="sv" id="st-span" style="font-size:.74rem">—</div></div>
@@ -456,7 +461,7 @@ table.an-table tr.an-row.focus{box-shadow:inset 3px 0 0 var(--acc)}
         <div id="an-map"></div>
         <div class="an-table-wrap">
           <table class="an-table">
-            <thead><tr><th style="width:26px"></th><th style="width:44px">Photo</th><th>Time · survey</th><th>Class</th><th>Depth</th><th>Edge</th><th>Tags</th><th style="width:70px"></th></tr></thead>
+            <thead><tr><th style="width:26px"></th><th style="width:44px">Photo</th><th>Time · survey</th><th>Class</th><th>Depth / mark</th><th>Edge</th><th>Tags</th><th style="width:70px"></th></tr></thead>
             <tbody id="rv-tbody"></tbody>
           </table>
         </div>
@@ -488,7 +493,7 @@ table.an-table tr.an-row.focus{box-shadow:inset 3px 0 0 var(--acc)}
    (multi-ZIP loading, legend bar, point fan-out, lightbox with zoom),
    reworked around flood class, depth, flow, trend, crosshair points and
    water edges, with a review workflow that keeps the original field labels. */
-const APP_VERSION='1.0.2';
+const APP_VERSION='1.1.0';
 let captures=[];            // every point from every ZIP / import
 let batches=[];             // {id,name,fileName,count,imgCount,app}
 let nextBatchId=1;
@@ -498,7 +503,15 @@ const FCLASS={
   flooded:{label:'Flooded',icon:'🌊',col:'#3b82f6'},
   waterlogged:{label:'Waterlogged',icon:'💧',col:'#14b8a6'},
   dry:{label:'Dry',icon:'☀️',col:'#f59e0b'},
+  // after-flood survey (1.1)
+  flood_mark:{label:'Flood mark',icon:'📏',col:'#a855f7'},
+  damage:{label:'Damage',icon:'🏚',col:'#ef4444'},
+  not_flooded:{label:'Not flooded',icon:'✅',col:'#22c55e'},
 };
+const WAS_FLOODED={flooded:true,waterlogged:true,flood_mark:true,damage:true,dry:false,not_flooded:false};
+const SEVC={minor:{label:'Minor',col:'#fbbf24'},major:{label:'Major',col:'#f97316'},destroyed:{label:'Destroyed',col:'#dc2626'}};
+const DAMAGEL={house:'House',building:'Other building',road:'Road',bridge:'Bridge / culvert',crops:'Crops / field',embankment:'Embankment / bund',water_supply:'Well / water supply',power:'Power line',vehicle:'Vehicle',livestock:'Livestock / shed'};
+const DEBRISL={none:'None',thin:'Thin layer',thick:'Thick (5 cm +)'}, STAYL={lt1d:'Less than a day','1to3d':'1–3 days',gt3d:'More than 3 days'};
 const UNL={label:'Unlabelled',icon:'·',col:'#94a3b8'}, EDGE_COL='#f472b6';
 const DEPTH=[
   {k:'none',label:'None',cm:0},{k:'ankle',label:'Ankle',cm:10},{k:'knee',label:'Knee',cm:45},
@@ -676,6 +689,8 @@ function capFromProps(p,co,extra){
     imgName:p.imgName||'', ts:p.timestamp||p.ts||'',
     cls:fc, depth:p.water_depth_class||null, depthCm:num(p.water_depth_cm), depthSource:p.water_depth_source||null,
     flow:p.flow||null, trend:p.level_trend||null, land:p.flooded_land_cover||null,
+    phase:p.survey_phase||'during', depthKind:p.water_depth_kind||null,
+    damage:p.damage_type||null, sev:p.damage_severity||null, debris:p.debris_left||null, stay:p.water_stayed||null,
     edge:p.water_edge===true||p.water_edge==='true', note:p.note||'',
     aim:(aimLat!==null&&aimLon!==null)?{lat:aimLat,lon:aimLon,dist:num(p.aim_dist_m),unc:num(p.aim_uncertainty_m)}:null,
     kc:p.kc_stage??null, deleted:p.deleted===true
@@ -762,6 +777,8 @@ function updateStats(){
   set('st-wl',ac.filter(c=>c.cls==='waterlogged').length||(ac.length?0:'—'));
   set('st-dr',ac.filter(c=>c.cls==='dry').length||(ac.length?0:'—'));
   set('st-edge',ac.filter(c=>c.edge).length||(ac.length?0:'—'));
+  set('st-mark',ac.filter(c=>c.cls==='flood_mark').length||(ac.length?0:'—'));
+  set('st-dmg',ac.filter(c=>c.cls==='damage').length||(ac.length?0:'—'));
   const deps=ac.map(depthCmOf).filter(v=>v!==null);
   set('st-depth',deps.length?'~'+Math.max(...deps)+' cm':'—');
   const ts=ac.map(c=>Date.parse(c.ts)).filter(v=>!isNaN(v));
@@ -785,8 +802,13 @@ function buildThumbs(){
 }
 function gridHTML(c){
   const f=(k,v,col)=>`<div class="pf"><div class="pk">${k}</div><div class="pv" ${col?`style="color:${col}"`:''}>${v}</div></div>`;
-  return f('Depth',esc(depthText(c)))+f('Flow',c.flow&&FLOW[c.flow]?FLOW[c.flow].label:'—',c.flow==='fast'?'#f87171':'')+
-    f('Trend',c.trend&&TREND[c.trend]?TREND[c.trend].label:'—')+f('Time',esc(fmtTime(c.ts)))+
+  const post=c.phase==='post';
+  const dmg=c.damage?String(c.damage).split(';').map(k=>DAMAGEL[k]||k).join(', '):'';
+  return f(post?'Flood mark':'Depth',esc(depthText(c)))+
+    (post ? f('How bad',c.sev&&SEVC[c.sev]?SEVC[c.sev].label:'—',c.sev?SEVC[c.sev]&&SEVC[c.sev].col:'')+f('Mud left',esc(DEBRISL[c.debris]||'—'))+f('Water stayed',esc(STAYL[c.stay]||'—'))
+          : f('Flow',c.flow&&FLOW[c.flow]?FLOW[c.flow].label:'—',c.flow==='fast'?'#f87171':'')+f('Trend',c.trend&&TREND[c.trend]?TREND[c.trend].label:'—'))+
+    f('Time',esc(fmtTime(c.ts)))+
+    (dmg?`<div class="pf" style="grid-column:1/-1"><div class="pk">What is damaged</div><div class="pv">${esc(dmg)}</div></div>`:'')+
     f('Look',Math.round(c.azimuth)+'° · tilt '+Math.round(c.tilt)+'°')+f('Aimed at',c.aim&&c.aim.dist!=null?c.aim.dist.toFixed(1)+' m ahead':'—')+
     (landText(c)?`<div class="pf" style="grid-column:1/-1"><div class="pk">What's flooded</div><div class="pv">${esc(landText(c))}</div></div>`:'')+
     `<div class="pf" style="grid-column:1/-1"><div class="pk">Survey · position</div><div class="pv" style="font-size:.66rem"><span style="color:${colorFor(c.project)}">${esc(c.project)}</span> · ${(+c.lat).toFixed(6)}, ${(+c.lon).toFixed(6)} ±${(+c.accuracy||0).toFixed(0)} m</div></div>`;
@@ -841,6 +863,9 @@ function getColor(c){
   if(m==='batch') return colorFor(c.project);
   if(m==='flow') return FLOW[c.flow]?FLOW[c.flow].col:UNL.col;
   if(m==='trend') return TREND[c.trend]?TREND[c.trend].col:UNL.col;
+  if(m==='wasflooded') return WAS_FLOODED[c.cls]===true?'#3b82f6':WAS_FLOODED[c.cls]===false?'#22c55e':UNL.col;
+  if(m==='severity') return SEVC[c.sev]?SEVC[c.sev].col:UNL.col;
+  if(m==='phase') return c.phase==='post'?'#a855f7':'#38bdf8';
   const v=m==='depth'?depthCmOf(c):m==='time'?effTime(c):m==='azimuth'?c.azimuth:c.tilt;
   if(v===null||!_rng) return UNL.col;
   const t=_rng.mx===_rng.mn?.5:(v-_rng.mn)/(_rng.mx-_rng.mn);
@@ -943,12 +968,15 @@ function updateColorLegend(list){
   const el=colorLegendEl;
   if(!list.length){ el.style.display='none'; return; } el.style.display='flex';
   const m=colorMode();
-  const title={class:'Flood class',depth:'Water depth',flow:'Flow',trend:'Level trend',time:'Capture time',batch:'Survey',azimuth:'Look direction',tilt:'Tilt'}[m];
+  const title={class:'Flood class',depth:'Water depth',flow:'Flow',trend:'Level trend',wasflooded:'Was it flooded?',severity:'Damage',phase:'Survey type',time:'Capture time',batch:'Survey',azimuth:'Look direction',tilt:'Tilt'}[m];
   const chips=items=>`<div class="cl-chips">`+items.filter(x=>x.n).map(x=>`<span class="cl-chip"><i style="background:${x.col}"></i>${esc(x.label)}<em>${x.n}</em></span>`).join('')+`</div>`;
   let body='';
   if(m==='class') body=chips([...Object.entries(FCLASS).map(([k,v])=>({label:v.label,col:v.col,n:list.filter(c=>c.cls===k).length})),{label:'Unlabelled',col:UNL.col,n:list.filter(c=>!c.cls).length}]);
   else if(m==='batch') body=chips([...new Set(list.map(c=>c.project))].map(p=>({label:p,col:colorFor(p),n:list.filter(c=>c.project===p).length})));
   else if(m==='flow') body=chips([...Object.entries(FLOW).map(([k,v])=>({label:v.label,col:v.col,n:list.filter(c=>c.flow===k).length})),{label:'Not recorded',col:UNL.col,n:list.filter(c=>!FLOW[c.flow]).length}]);
+  else if(m==='wasflooded') body=chips([{label:'Flooded (water or marks)',col:'#3b82f6',n:list.filter(c=>WAS_FLOODED[c.cls]===true).length},{label:'Not flooded',col:'#22c55e',n:list.filter(c=>WAS_FLOODED[c.cls]===false).length},{label:'Unlabelled',col:UNL.col,n:list.filter(c=>!(c.cls in WAS_FLOODED)).length}]);
+  else if(m==='severity') body=chips([...Object.entries(SEVC).map(([k,v])=>({label:v.label,col:v.col,n:list.filter(c=>c.sev===k).length})),{label:'Not recorded',col:UNL.col,n:list.filter(c=>!SEVC[c.sev]).length}]);
+  else if(m==='phase') body=chips([{label:'During flood',col:'#38bdf8',n:list.filter(c=>c.phase!=='post').length},{label:'After flood',col:'#a855f7',n:list.filter(c=>c.phase==='post').length}]);
   else if(m==='trend') body=chips([...Object.entries(TREND).map(([k,v])=>({label:v.label,col:v.col,n:list.filter(c=>c.trend===k).length})),{label:'Not recorded',col:UNL.col,n:list.filter(c=>!TREND[c.trend]).length}]);
   else if(!_rng) body=`<div class="cl-chips"><span class="cl-chip"><i style="background:${UNL.col}"></i>No values recorded</span></div>`;
   else{
@@ -995,7 +1023,10 @@ function propsOut(c){
     flood_class:c.cls||null, water_depth_class:c.depth||null,
     water_depth_cm: c.depthSource==='measured'&&c.depthCm!==null ? c.depthCm : (d?d.cm:null),
     water_depth_source: c.depthSource==='measured'&&c.depthCm!==null ? 'measured' : (d?(c.cls==='dry'&&c.depth==='none'?'dry_class':'body_scale'):null),
-    flow:c.flow||null, level_trend:c.trend||null, flooded_land_cover:c.land||null, water_edge:!!c.edge, note:c.note||null,
+    survey_phase:c.phase||'during', was_flooded:c.cls in WAS_FLOODED?WAS_FLOODED[c.cls]:null, water_depth_kind:c.depthKind||(c.depth?(c.phase==='post'?'max_from_flood_mark':'current'):null),
+    flow:c.flow||null, level_trend:c.trend||null, flooded_land_cover:c.land||null,
+    damage_type:c.damage||null, damage_severity:c.sev||null, debris_left:c.debris||null, water_stayed:c.stay||null,
+    water_edge:!!c.edge, note:c.note||null,
     field_flood_class:c.field?c.field.cls:null, field_water_depth_class:c.field?c.field.depth:null, field_water_edge:c.field?!!c.field.edge:null,
     review_changed:!!isChanged(c), deleted:!!c.deleted,
     altitude:c.alt, heading_deg:c.azimuth, tilt_deg_from_nadir:c.tilt, hfov_deg:c.hfov, camera_height_m:c.camH, gps_accuracy_m:c.accuracy,
@@ -1029,7 +1060,7 @@ function downloadEdgeJSON(){
 }
 function downloadCSV(){
   const list=activeCaps(); if(!list.length){ showToast('Nothing to export'); return; }
-  const cols=['id','project','timestamp','lat','lon','flood_class','water_depth_class','water_depth_cm','water_depth_source','flow','level_trend','flooded_land_cover','water_edge','note','field_flood_class','field_water_depth_class','field_water_edge','review_changed','heading_deg','tilt_deg_from_nadir','camera_height_m','gps_accuracy_m','aim_lat','aim_lon','aim_dist_m','aim_uncertainty_m','imgName','source_zip'];
+  const cols=['id','project','timestamp','lat','lon','survey_phase','flood_class','was_flooded','water_depth_kind','water_depth_class','water_depth_cm','water_depth_source','flow','level_trend','flooded_land_cover','damage_type','damage_severity','debris_left','water_stayed','water_edge','note','field_flood_class','field_water_depth_class','field_water_edge','review_changed','heading_deg','tilt_deg_from_nadir','camera_height_m','gps_accuracy_m','aim_lat','aim_lon','aim_dist_m','aim_uncertainty_m','imgName','source_zip'];
   const cell=v=>{ if(v===null||v===undefined) return ''; const s=String(v); return /[",\n;]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
   const rows=list.map(c=>{ const p=propsOut(c); p.lat=c.lat; p.lon=c.lon; return cols.map(k=>cell(p[k])).join(','); });
   dl([cols.join(','),...rows].join('\n'),outName('_reviewed.csv'),'text/csv');
@@ -1132,7 +1163,8 @@ function refreshReview(){
   else tb.innerHTML=list.map(c=>{
     const u=jsq(c.uid), sel=rvSelection.has(c.uid);
     const th=c.imgUrl?`<img src="${c.imgUrl}" loading="lazy" alt="" style="width:38px;height:29px;object-fit:cover;border-radius:4px;display:block;cursor:zoom-in;border:2px solid ${clsInfo(c.cls).col}"/>`:`<div style="width:38px;height:29px;border-radius:4px;background:var(--surf3);border:2px solid ${clsInfo(c.cls).col}"></div>`;
-    const tags=[c.flow&&FLOW[c.flow]?FLOW[c.flow].label+' flow':'',c.trend&&TREND[c.trend]?TREND[c.trend].label:'',landText(c)].filter(Boolean).join(' · ');
+    const tags=[c.phase==='post'?'after flood':'',c.flow&&FLOW[c.flow]?FLOW[c.flow].label+' flow':'',c.trend&&TREND[c.trend]?TREND[c.trend].label:'',landText(c),
+      c.damage?'damage: '+String(c.damage).split(';').map(k=>DAMAGEL[k]||k).join(', '):'',SEVC[c.sev]?SEVC[c.sev].label:''].filter(Boolean).join(' · ');
     return `<tr class="an-row ${sel?'sel':''} ${rvFocused&&rvFocused.uid===c.uid?'focus':''}" style="${c.deleted?'opacity:.45':''}">
       <td><input type="checkbox" ${sel?'checked':''} onclick="toggleSel(${u},event)"/></td>
       <td onclick="openLightboxFromRow(${u})">${th}</td>

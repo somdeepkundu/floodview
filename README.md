@@ -2,7 +2,7 @@
 
 **Geo-tagged flood ground truthing from a phone.** Every photo records where you stand, where the camera looks, the patch of ground or water it sees, and what the water is doing. Built to collect field truth for flood maps (for example Sentinel-1 SAR or optical flood extents).
 
-**Version 1.0.2** · Sibling of [CropView](https://github.com/somdeepkundu/cropview-v3) · MIT License
+**Version 1.1.0** · Sibling of [CropView](https://github.com/somdeepkundu/cropview-v3) · MIT License
 
 * **[Open FloodView](https://somdeepkundu.github.io/floodview/)**: the capture app (phone)
 * **[Open FloodView Explorer](https://somdeepkundu.github.io/floodview/explorer.html)**: map, review and export your ZIPs (phone or desktop)
@@ -29,6 +29,10 @@ Captures can be edited later in the Data tab (class, tags, edge flag, note).
 ### Works offline
 
 Open the app once with internet and it then works with no network: the app, its libraries and the font are cached, and map tiles you have already looked at stay available. Photos are stored on the phone (IndexedDB) at full resolution, so they survive a reload or a closed tab. You can also continue a saved survey later from the start screen. Tip: **Add to Home screen** for a full-screen app.
+
+## After the flood
+
+Pick **After flood** when you start a survey. The buttons become **FLOOD MARK** (the water line left on walls and trees), **DAMAGE** and **NOT FLOODED**, and the tags ask for mark height, what is damaged, how bad, mud left behind and how long the water stayed. `was_flooded` in the export lets you put during- and after-flood points on one map.
 
 ## What each capture records
 
